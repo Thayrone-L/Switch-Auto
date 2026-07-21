@@ -1,0 +1,50 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+
+# Android / Gradle
+.gradle/
+local.properties
+**/build/
+captures/
+*.apk
+*.aab
+
+# Nintendo Switch homebrew
+*.nro
+*.nacp
+*.nso
+*.elf
+*.kip
+*.map
+*.lst
+
+# Native build artifacts
+build/
+out/
+dist/
+obj/
+*.o
+*.a
+*.so
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+
