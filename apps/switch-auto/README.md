@@ -1,15 +1,36 @@
-# Switch Auto Homebrew
+# Switch Auto NRO — handshake prototype
 
-Aplicativo homebrew responsável pela interface automotiva exibida no Nintendo
-Switch.
+Cliente mínimo para validar comunicação entre o Nintendo Switch e o Android
+Companion.
 
-Responsabilidades planejadas:
+## Build
 
-- renderizar a interface em 1280 x 720;
-- receber dados do companion Android;
-- capturar touchscreen e controles físicos;
-- enviar comandos de mídia;
-- indicar e recuperar perdas de conexão.
+Execute no shell do devkitPro/MSYS2:
 
-A stack inicial considerada é C++ com devkitPro, libnx e SDL2.
+```sh
+export DEVKITPRO=/opt/devkitpro
+make
+```
 
+No Windows, o caminho deste repositório contém um espaço e o template do
+devkitPro não consegue processá-lo diretamente. Execute a partir da raiz:
+
+```powershell
+.\tools\build-switch.ps1
+```
+
+O artefato será gerado como `switch-auto.nro`. Copie-o para:
+
+```text
+/switch/switch-auto/switch-auto.nro
+```
+
+## Teste
+
+1. Abra o Android Companion e inicie o servidor.
+2. Conecte o Switch à mesma rede ou ao hotspot do Android.
+3. Abra o NRO e informe o IPv4 e o código mostrados no APK.
+4. Confirme `PAIR ACCEPTED`, `HELLO ACK` e respostas `PONG`.
+5. Pressione `+` para encerrar.
+
+O transporte TCP/JSON desta etapa é provisório e fica isolado do futuro Core.

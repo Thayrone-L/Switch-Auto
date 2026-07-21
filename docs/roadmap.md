@@ -6,8 +6,9 @@
 - criar o Core, HAL, SDK interno e Widget Registry mínimos;
 - definir concorrência, tarefas assíncronas e cancelamento;
 - definir stack e requisitos de desenvolvimento;
-- criar os projetos compiláveis para Android e Switch;
-- definir a primeira versão do protocolo.
+- [x] criar os projetos mínimos para Android e Switch;
+- [x] definir o protocolo experimental de handshake;
+- compilar e validar o APK e o NRO nos dispositivos físicos.
 
 ## Marco 1 — Conexão
 
