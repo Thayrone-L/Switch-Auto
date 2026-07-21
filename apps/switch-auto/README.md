@@ -33,4 +33,11 @@ O artefato será gerado como `switch-auto.nro`. Copie-o para:
 4. Confirme `PAIR ACCEPTED`, `HELLO ACK` e respostas `PONG`.
 5. Pressione `+` para encerrar.
 
+Em caso de falha, o NRO mostra a operação, o código `errno` e sua descrição. Ele
+faz três tentativas com espera progressiva e depois oferece:
+
+- `A`: repetir com o mesmo IP e código;
+- `X`: editar IP e código;
+- `+`: encerrar.
+
 O transporte TCP/JSON desta etapa é provisório e fica isolado do futuro Core.

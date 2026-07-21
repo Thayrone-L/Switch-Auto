@@ -13,6 +13,47 @@ namespace {
 constexpr uint16_t kCompanionPort = 38471;
 constexpr int kProtocolVersion = 1;
 constexpr size_t kBufferSize = 1024;
+constexpr int kMaximumConnectionAttempts = 3;
+
+void printSocketError(const char* operation) {
+    const int errorCode = errno;
+    const char* description = strerror(errorCode);
+    printf("ERROR [%s] errno=%d (%s)\n", operation, errorCode,
+           description != nullptr ? description : "unknown error");
+}
+
+void printNetworkStatus() {
+    NifmInternetConnectionType connectionType{};
+    NifmInternetConnectionStatus connectionStatus{};
+    u32 wifiStrength = 0;
+    const Result result = nifmGetInternetConnectionStatus(
+        &connectionType, &wifiStrength, &connectionStatus);
+    if (R_FAILED(result)) {
+        printf("NETWORK status unavailable: result=0x%x\n", result);
+        return;
+    }
+
+    const char* type = "unknown";
+    if (connectionType == NifmInternetConnectionType_WiFi) {
+        type = "Wi-Fi";
+    } else if (connectionType == NifmInternetConnectionType_Ethernet) {
+        type = "Ethernet";
+    }
+    printf("NETWORK type=%s status=%u strength=%u/3\n", type,
+           static_cast<unsigned>(connectionStatus),
+           static_cast<unsigned>(wifiStrength));
+}
+
+bool waitSeconds(PadState* pad, int seconds) {
+    for (int frame = 0; frame < seconds * 60 && appletMainLoop(); ++frame) {
+        padUpdate(pad);
+        if (padGetButtonsDown(pad) & HidNpadButton_Plus) {
+            return false;
+        }
+        svcSleepThread(16'666'667L);
+    }
+    return true;
+}
 
 bool promptText(const char* header, const char* guide, const char* initial,
                 char* output, size_t outputSize) {
@@ -38,6 +79,11 @@ bool sendAll(int socketFd, const char* text) {
     while (remaining > 0) {
         const ssize_t sent = send(socketFd, cursor, remaining, 0);
         if (sent <= 0) {
+            if (sent < 0) {
+                printSocketError("send");
+            } else {
+                printf("ERROR [send] peer closed the connection.\n");
+            }
             return false;
         }
         cursor += sent;
@@ -52,9 +98,11 @@ bool receiveLine(int socketFd, char* output, size_t outputSize) {
         char value = '\0';
         const ssize_t received = recv(socketFd, &value, 1, 0);
         if (received == 0) {
+            printf("ERROR [recv] peer closed the connection.\n");
             return false;
         }
         if (received < 0) {
+            printSocketError("recv");
             return false;
         }
         if (value == '\n') {
@@ -76,7 +124,7 @@ bool containsType(const char* json, const char* type) {
 int connectToCompanion(const char* ipAddress) {
     const int socketFd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socketFd < 0) {
-        printf("socket() failed: %d\n", errno);
+        printSocketError("socket");
         return -1;
     }
 
@@ -97,7 +145,7 @@ int connectToCompanion(const char* ipAddress) {
     printf("Connecting to %s:%u...\n", ipAddress, kCompanionPort);
     consoleUpdate(nullptr);
     if (connect(socketFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        printf("connect() failed: %d\n", errno);
+        printSocketError("connect");
         close(socketFd);
         return -1;
     }
@@ -143,12 +191,12 @@ bool performHandshake(int socketFd, const char* code) {
     return true;
 }
 
-void runHeartbeat(int socketFd, PadState* pad) {
+bool runHeartbeat(int socketFd, PadState* pad) {
     int sequence = 1;
     while (appletMainLoop()) {
         padUpdate(pad);
         if (padGetButtonsDown(pad) & HidNpadButton_Plus) {
-            break;
+            return true;
         }
 
         char ping[128];
@@ -157,13 +205,13 @@ void runHeartbeat(int socketFd, PadState* pad) {
                  sequence);
         if (!sendAll(socketFd, ping)) {
             printf("Connection lost while sending ping.\n");
-            break;
+            return false;
         }
 
         char response[kBufferSize];
         if (!receiveLine(socketFd, response, sizeof(response))) {
             printf("Connection lost while waiting for pong.\n");
-            break;
+            return false;
         }
         printf("PONG %d: %s\n", sequence++, response);
         consoleUpdate(nullptr);
@@ -171,11 +219,12 @@ void runHeartbeat(int socketFd, PadState* pad) {
         for (int i = 0; i < 300 && appletMainLoop(); ++i) {
             padUpdate(pad);
             if (padGetButtonsDown(pad) & HidNpadButton_Plus) {
-                return;
+                return true;
             }
             svcSleepThread(16'666'667L);
         }
     }
+    return true;
 }
 
 }  // namespace
@@ -190,24 +239,79 @@ int main(int, char**) {
     printf("TCP/JSON protocol v1 - port %u\n\n", kCompanionPort);
     consoleUpdate(nullptr);
 
-    if (R_FAILED(socketInitializeDefault())) {
-        printf("Network initialization failed.\n");
+    const Result socketResult = socketInitializeDefault();
+    if (R_FAILED(socketResult)) {
+        printf("Network initialization failed: result=0x%x\n", socketResult);
         consoleUpdate(nullptr);
     } else {
         char ipAddress[64] = "192.168.43.1";
         char pairingCode[16] = {};
-        if (promptText("Android Companion IP", "Example: 192.168.43.1",
-                       ipAddress, ipAddress, sizeof(ipAddress)) &&
-            promptText("Pairing code", "Enter the 6-digit code", "",
-                       pairingCode, sizeof(pairingCode))) {
-            const int socketFd = connectToCompanion(ipAddress);
-            if (socketFd >= 0) {
-                if (performHandshake(socketFd, pairingCode)) {
-                    printf("\nHeartbeat active. Press + to exit.\n");
-                    consoleUpdate(nullptr);
-                    runHeartbeat(socketFd, &pad);
+        bool editCredentials = true;
+        bool exitRequested = false;
+
+        while (appletMainLoop() && !exitRequested) {
+            if (editCredentials) {
+                if (!promptText("Android Companion IP", "Example: 192.168.43.1",
+                                ipAddress, ipAddress, sizeof(ipAddress)) ||
+                    !promptText("Pairing code", "Enter the 6-digit code", "",
+                                pairingCode, sizeof(pairingCode))) {
+                    break;
                 }
-                close(socketFd);
+                editCredentials = false;
+            }
+
+            bool connected = false;
+            for (int attempt = 1;
+                 attempt <= kMaximumConnectionAttempts && !exitRequested;
+                 ++attempt) {
+                printf("\n--- Connection attempt %d/%d ---\n", attempt,
+                       kMaximumConnectionAttempts);
+                printNetworkStatus();
+                consoleUpdate(nullptr);
+
+                const int socketFd = connectToCompanion(ipAddress);
+                if (socketFd >= 0) {
+                    connected = performHandshake(socketFd, pairingCode);
+                    if (connected) {
+                        printf("\nHeartbeat active. Press + to exit.\n");
+                        consoleUpdate(nullptr);
+                        exitRequested = runHeartbeat(socketFd, &pad);
+                    }
+                    close(socketFd);
+                }
+
+                if (connected || exitRequested) {
+                    break;
+                }
+
+                if (attempt < kMaximumConnectionAttempts) {
+                    const int delaySeconds = attempt * 2;
+                    printf("Retrying in %d seconds... (+ cancels)\n", delaySeconds);
+                    consoleUpdate(nullptr);
+                    if (!waitSeconds(&pad, delaySeconds)) {
+                        exitRequested = true;
+                    }
+                }
+            }
+
+            if (!exitRequested) {
+                printf("\nA: retry  X: edit IP/code  +: exit\n");
+                consoleUpdate(nullptr);
+                bool actionSelected = false;
+                while (appletMainLoop() && !actionSelected) {
+                    padUpdate(&pad);
+                    const u64 buttons = padGetButtonsDown(&pad);
+                    if (buttons & HidNpadButton_A) {
+                        actionSelected = true;
+                    } else if (buttons & HidNpadButton_X) {
+                        editCredentials = true;
+                        actionSelected = true;
+                    } else if (buttons & HidNpadButton_Plus) {
+                        exitRequested = true;
+                        actionSelected = true;
+                    }
+                    svcSleepThread(16'666'667L);
+                }
             }
         }
         socketExit();
