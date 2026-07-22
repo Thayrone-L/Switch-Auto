@@ -36,9 +36,15 @@ std::optional<std::uint32_t> unsignedField(std::string_view json, std::string_vi
 }
 
 bool validPairingCode(std::string_view code) {
-    return code.size() == 6 && std::all_of(code.begin(), code.end(), [](char value) {
-        return std::isdigit(static_cast<unsigned char>(value));
-    });
+    const bool legacyCode = code.size() == 6 &&
+        std::all_of(code.begin(), code.end(), [](char value) {
+            return std::isdigit(static_cast<unsigned char>(value));
+        });
+    const bool pairingToken = code.size() == 64 &&
+        std::all_of(code.begin(), code.end(), [](char value) {
+            return std::isxdigit(static_cast<unsigned char>(value));
+        });
+    return legacyCode || pairingToken;
 }
 
 std::string envelope(std::string_view payload) {
@@ -60,7 +66,7 @@ Result<std::string, CompanionError> CompanionSession::begin(
         ? ""
         : ",\"deviceId\":\"" + std::string(deviceId) + "\"";
     return Result<std::string, CompanionError>::success(envelope(
-        "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"code\":\"" +
+        "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"pairingToken\":\"" +
         std::string(pairingCode) + "\"" + identityField));
 }
 

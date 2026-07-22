@@ -17,7 +17,7 @@
     },
     "connection": {
         "title": "Conectar ao Android Companion",
-        "description": "Informe este código no Android e inicie a descoberta automática.",
+        "description": "Leia este QR no aplicativo Android. O primeiro pareamento inicia automaticamente.",
         "device_id_label": "IDENTIDADE DO SWITCH",
         "ip_label": "IP do Companion",
         "ip_placeholder": "Exemplo: 10.171.194.141",
@@ -29,7 +29,7 @@
         "offline": "CONTINUAR OFFLINE",
         "open": "CONFIGURAR CONEXÃO",
         "connected": "CONECTADO",
-        "ready": "Pronto para conectar",
+        "ready": "Leia o QR no aplicativo Companion",
         "not_found": "Companion não encontrado. Confirme que o servidor está iniciado e tente novamente.",
         "error": "Erro de conexão: {}"
     },

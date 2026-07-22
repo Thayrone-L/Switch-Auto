@@ -54,6 +54,8 @@ struct CompanionStatus {
 struct CompanionPairingInfo {
     std::string deviceId;
     std::string code;
+    std::string pairingToken;
+    std::string qrPayload;
 };
 
 class CompanionService {

@@ -22,7 +22,9 @@ set(SWITCH_AUTO_SOURCES
     apps/ui/source/connection_view.cpp
     apps/ui/source/dashboard_view.cpp
     apps/ui/source/main.cpp
+    apps/ui/source/qr_code_view.cpp
     core/source/companion.cpp
+    extern/qrcodegen/qrcodegen.cpp
 )
 
 if(PLATFORM_SWITCH)
@@ -41,6 +43,7 @@ set_target_properties(switch-auto PROPERTIES
 target_include_directories(switch-auto PRIVATE
     apps/ui/include
     core/include
+    extern/qrcodegen
 )
 if(PLATFORM_SWITCH)
     target_include_directories(switch-auto PRIVATE apps/platform/switch)

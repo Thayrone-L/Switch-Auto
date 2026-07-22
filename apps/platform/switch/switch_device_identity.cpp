@@ -57,7 +57,12 @@ Result<SwitchDeviceIdentity, CompanionError> SwitchDeviceIdentity::loadOrCreate(
         static_cast<unsigned>(hash[11]);
     char code[7]{};
     std::snprintf(code, sizeof(code), "%06u", value % 1'000'000U);
-    identity.pairingInfo_ = {deviceId, code};
+    char token[65]{};
+    for (std::size_t index = 0; index < identity.secret_.size(); ++index) {
+        std::snprintf(token + index * 2, 3, "%02X", identity.secret_[index]);
+    }
+    identity.pairingInfo_ = {deviceId, code, token,
+        "switchauto://pair?v=1&id=" + std::string(deviceId) + "&token=" + token};
     return Result<SwitchDeviceIdentity, CompanionError>::success(std::move(identity));
 }
 

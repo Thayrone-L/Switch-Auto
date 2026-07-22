@@ -3,14 +3,17 @@ package dev.switchauto.companion
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
+import android.net.Uri
 import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -23,6 +26,9 @@ import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -37,13 +43,13 @@ class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
-    private lateinit var codeInput: EditText
     private lateinit var logView: TextView
     private lateinit var toggleButton: Button
+    private lateinit var scanButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
-    @Volatile private var pairingCode: String = ""
+    private val logLock = Any()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,14 +79,6 @@ class MainActivity : Activity() {
 
         statusView = label("Stopped", 20f)
         addressView = label("IP: unavailable", 18f)
-        codeInput = EditText(this).apply {
-            hint = "Switch pairing code"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
-            gravity = Gravity.CENTER_HORIZONTAL
-            textSize = 30f
-            setPadding(0, padding, 0, padding)
-        }
         toggleButton = Button(this).apply {
             text = "Start server"
             setOnClickListener {
@@ -95,7 +93,12 @@ class MainActivity : Activity() {
 
         root.addView(statusView)
         root.addView(addressView)
-        root.addView(codeInput)
+        scanButton = Button(this).apply {
+            text = "Scan Switch QR"
+            setOnClickListener { scanSwitchQr() }
+        }
+        root.addView(scanButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(toggleButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(label("Event log", 20f).apply { setPadding(0, padding, 0, 0) })
@@ -113,12 +116,6 @@ class MainActivity : Activity() {
 
     private fun startServer() {
         if (!running.compareAndSet(false, true)) return
-        pairingCode = codeInput.text.toString()
-        if (pairingCode.isNotEmpty() && !pairingCode.matches(Regex("\\d{6}"))) {
-            running.set(false)
-            statusView.text = "Enter a valid 6-digit Switch code"
-            return
-        }
         refreshConnectionDetails()
         statusView.text = "Starting..."
         toggleButton.text = "Stop server"
@@ -175,13 +172,14 @@ class MainActivity : Activity() {
 
                 while (running.get()) {
                     val line = reader.readLine() ?: break
-                    appendLog("RX $line")
                     val request = try {
                         JSONObject(line)
                     } catch (_: Exception) {
+                        appendLog("RX invalid JSON from $remote")
                         send(writer, message("error").put("code", "invalid_json"))
                         continue
                     }
+                    logProtocol("RX", request, remote)
 
                     if (request.optInt("version") != PROTOCOL_VERSION) {
                         send(writer, message("error").put("code", "unsupported_version"))
@@ -191,20 +189,18 @@ class MainActivity : Activity() {
                     when (request.optString("type")) {
                         "pair.request" -> {
                             val deviceId = request.optString("deviceId")
-                            val suppliedCode = request.optString("code")
-                            val savedCode = getPreferences(MODE_PRIVATE)
-                                .getString("paired.$deviceId", null)
+                            val suppliedToken = request.optString("pairingToken")
+                            val savedToken = getPreferences(MODE_PRIVATE)
+                                .getString("pairedToken.$deviceId", null)
                             if (deviceId.isNotBlank() &&
-                                (suppliedCode == savedCode ||
-                                 (pairingCode.isNotEmpty() && suppliedCode == pairingCode))) {
+                                savedToken != null && suppliedToken == savedToken) {
                                 paired = true
-                                getPreferences(MODE_PRIVATE).edit()
-                                    .putString("paired.$deviceId", suppliedCode).apply()
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
                                 runOnUiThread { statusView.text = "Switch paired: $remote" }
                             } else {
-                                send(writer, message("pair.rejected").put("reason", "invalid_code"))
+                                appendLog("Pair rejected for deviceId=$deviceId: credential mismatch")
+                                send(writer, message("pair.rejected").put("reason", "invalid_credential"))
                             }
                         }
                         "hello" -> if (paired) {
@@ -238,7 +234,7 @@ class MainActivity : Activity() {
         writer.write(line)
         writer.newLine()
         writer.flush()
-        appendLog("TX $line")
+        logProtocol("TX", payload, "Switch")
     }
 
     private fun runDiscoveryResponder() {
@@ -269,8 +265,75 @@ class MainActivity : Activity() {
     }
 
     private fun appendLog(message: String) {
+        val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+        val line = "$timestamp $message\n"
+        synchronized(logLock) {
+            try {
+                val directory = getExternalFilesDir(null) ?: filesDir
+                directory.mkdirs()
+                val file = java.io.File(directory, "switch-auto.log")
+                if (file.length() > 1024 * 1024) {
+                    val previous = java.io.File(directory, "switch-auto.log.1")
+                    previous.delete()
+                    file.renameTo(previous)
+                }
+                file.appendText(line)
+            } catch (_: Exception) {
+            }
+        }
         runOnUiThread {
-            if (::logView.isInitialized) logView.append("$message\n")
+            if (::logView.isInitialized) logView.append(line)
+        }
+    }
+
+    private fun logProtocol(direction: String, payload: JSONObject, peer: String) {
+        val type = payload.optString("type", "unknown")
+        val deviceId = payload.optString("deviceId")
+        val suffix = if (deviceId.isBlank()) "" else " deviceId=$deviceId"
+        appendLog("$direction $type peer=$peer$suffix")
+    }
+
+    private fun scanSwitchQr() {
+        appendLog("Opening QR scanner")
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(this, options).startScan()
+            .addOnSuccessListener { barcode ->
+                val raw = barcode.rawValue
+                if (raw == null || !storePairingQr(raw)) {
+                    statusView.text = "Invalid Switch Auto QR"
+                    appendLog("QR rejected: invalid payload")
+                }
+            }
+            .addOnCanceledListener { appendLog("QR scan canceled") }
+            .addOnFailureListener { error ->
+                statusView.text = "QR scanner error"
+                appendLog("QR scanner error: ${error.message}")
+            }
+    }
+
+    private fun storePairingQr(raw: String): Boolean {
+        return try {
+            val uri = Uri.parse(raw)
+            val version = uri.getQueryParameter("v")
+            val deviceId = uri.getQueryParameter("id") ?: return false
+            val token = uri.getQueryParameter("token") ?: return false
+            if (uri.scheme != "switchauto" || uri.host != "pair" || version != "1" ||
+                !deviceId.matches(Regex("[A-Z0-9]{8,32}")) ||
+                !token.matches(Regex("[A-F0-9]{64}"))) return false
+            getPreferences(MODE_PRIVATE).edit()
+                .putString("pairedToken.$deviceId", token)
+                .putString("lastDeviceId", deviceId)
+                .apply()
+            statusView.text = "Switch QR paired: $deviceId"
+            appendLog("QR accepted for deviceId=$deviceId; secret stored in app preferences")
+            if (!running.get()) startServer()
+            true
+        } catch (error: Exception) {
+            appendLog("QR parse error: ${error.message}")
+            false
         }
     }
 

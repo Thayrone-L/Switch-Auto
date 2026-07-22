@@ -3,9 +3,13 @@
 #include <cstdio>
 #include <filesystem>
 #include <memory>
+#ifdef __SWITCH__
+#include <sys/stat.h>
+#endif
 
 #include "connection_view.hpp"
 #include "dashboard_view.hpp"
+#include "qr_code_view.hpp"
 
 #ifdef __SWITCH__
 #include <switch.h>
@@ -48,7 +52,10 @@ public:
     void disconnect() override { status_ = {}; }
     switch_auto::CompanionStatus status() const override { return status_; }
     std::optional<switch_auto::CompanionPairingInfo> pairingInfo() const override {
-        return switch_auto::CompanionPairingInfo{"SIMULATOR", "123456"};
+        return switch_auto::CompanionPairingInfo{
+            "SIMULATOR", "123456",
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "switchauto://pair?v=1&id=SIMULATOR&token=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"};
     }
 
 private:
@@ -69,12 +76,19 @@ int main(int argc, char** argv) {
     (void)argv;
 #endif
 #ifdef __SWITCH__
-    std::FILE* diagnosticLog =
-        std::fopen("sdmc:/switch/switch-auto/switch-auto.log", "w");
+    constexpr const char* logPath = "sdmc:/switch/switch-auto/switch-auto.log";
+    constexpr const char* previousLogPath = "sdmc:/switch/switch-auto/switch-auto.log.1";
+    struct stat logInfo{};
+    if (::stat(logPath, &logInfo) == 0 && logInfo.st_size > 1024 * 1024) {
+        std::remove(previousLogPath);
+        std::rename(logPath, previousLogPath);
+    }
+    std::FILE* diagnosticLog = std::fopen(logPath, "a");
     if (diagnosticLog) {
         std::setvbuf(diagnosticLog, nullptr, _IONBF, 0);
         brls::Logger::setLogOutput(diagnosticLog);
         brls::Logger::setThreadSafeLogging(true);
+        std::fputs("\n--- Switch Auto startup ---\n", diagnosticLog);
     }
 #else
     std::FILE* diagnosticLog = nullptr;
@@ -105,6 +119,8 @@ int main(int argc, char** argv) {
     brls::Application::setGlobalQuit(true);
     brls::Application::registerXMLView(
         "DashboardView", switch_auto::ui::DashboardView::create);
+    brls::Application::registerXMLView(
+        "QrCodeView", switch_auto::ui::QrCodeView::create);
     brls::Logger::info("Switch Auto stage: dashboard-registered");
     brls::Application::pushActivity(new MainActivity());
     brls::Logger::info("Switch Auto stage: dashboard-pushed");

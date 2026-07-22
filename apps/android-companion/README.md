@@ -22,14 +22,19 @@ O APK será criado como `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Teste
 
-1. Abra a tela de conexão no Switch e anote o código estável de seis dígitos.
-2. Digite esse código no Companion e toque em **Start server**.
-3. Conecte o Switch à mesma rede ou ao hotspot do telefone.
-4. Toque em **Localizar e conectar** no NRO; o IP é descoberto automaticamente.
-5. Observe os eventos `discover.request`, `pair.request`, `hello` e `ping` no log.
+1. Abra a tela de conexão no Switch para exibir o QR de pareamento.
+2. Toque em **Scan Switch QR** no Companion e leia o código.
+3. O servidor Android inicia automaticamente após validar o QR.
+4. Conecte o Switch à mesma rede ou ao hotspot do telefone.
+5. Toque em **Localizar e conectar** no NRO; o IP é descoberto automaticamente.
+6. Observe os eventos `discover.request`, `pair.request`, `hello` e `ping` no log.
 
-Depois do primeiro pareamento, o Companion memoriza o identificador do Switch e
-o código correspondente. Não é preciso redigitar o código nas conexões seguintes.
+Depois do primeiro pareamento, o Companion memoriza o identificador e o token do
+Switch. Não é preciso ler novamente o QR nas conexões seguintes.
+
+O log do Android fica no diretório externo privado do aplicativo, no arquivo
+`switch-auto.log`. O arquivo é rotacionado ao atingir 1 MiB e nunca registra o
+token de pareamento.
 
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

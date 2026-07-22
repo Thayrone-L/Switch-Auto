@@ -16,25 +16,20 @@
         fontSize="20" height="58px" horizontalAlign="left" textColor="#91a0b5" />
 
     <brls:Box
-        width="auto" height="auto" axis="column" grow="1.0"
+        width="auto" height="auto" axis="row" grow="1.0"
         paddingTop="20px" paddingRight="28px" paddingBottom="20px" paddingLeft="28px"
         marginTop="18px" backgroundColor="#111925" cornerRadius="22">
-        <brls:Label
-            text="@i18n/switch_auto/connection/device_id_label"
-            fontSize="17" height="30px" horizontalAlign="left" textColor="#91a0b5" />
-        <brls:Label
-            id="device-id" text="-" fontSize="21" height="42px" horizontalAlign="left" />
-        <brls:Label
-            text="@i18n/switch_auto/connection/code_label"
-            fontSize="17" height="30px" horizontalAlign="left" textColor="#91a0b5" />
-        <brls:Label
-            id="pairing-code" text="------" fontSize="58" height="82px" horizontalAlign="center" />
-        <brls:Label
-            id="connection-status" text="@i18n/switch_auto/connection/ready"
-            fontSize="19" height="58px" horizontalAlign="left" textColor="#91a0b5" />
-        <brls:Box width="auto" height="68px" axis="row" marginTop="12px">
-            <brls:Button id="connect-button" text="@i18n/switch_auto/connection/connect" grow="1.0" />
-            <brls:Button id="offline-button" text="@i18n/switch_auto/connection/offline" grow="1.0" marginLeft="18px" />
+        <QrCodeView id="pairing-qr" width="270px" height="270px" />
+        <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="32px">
+            <brls:Label text="@i18n/switch_auto/connection/device_id_label"
+                fontSize="17" height="30px" horizontalAlign="left" textColor="#91a0b5" />
+            <brls:Label id="device-id" text="-" fontSize="21" height="42px" horizontalAlign="left" />
+            <brls:Label id="connection-status" text="@i18n/switch_auto/connection/ready"
+                fontSize="19" height="48px" horizontalAlign="left" textColor="#91a0b5" />
+            <brls:Box width="auto" height="60px" axis="row" marginTop="8px">
+                <brls:Button id="connect-button" text="@i18n/switch_auto/connection/connect" grow="1.0" />
+                <brls:Button id="offline-button" text="@i18n/switch_auto/connection/offline" grow="1.0" marginLeft="18px" />
+            </brls:Box>
         </brls:Box>
     </brls:Box>
 </brls:Box>

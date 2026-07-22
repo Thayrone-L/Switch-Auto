@@ -40,7 +40,7 @@ ConnectionView::ConnectionView(CompanionService& companion) : companion_(compani
     brls::Logger::info("Connection screen stage: xml-ready");
     const auto pairing = companion_.pairingInfo();
     deviceIdLabel_->setText(pairing ? pairing->deviceId : "-");
-    pairingCodeLabel_->setText(pairing ? pairing->code : "------");
+    qrCode_->setPayload(pairing ? pairing->qrPayload : "");
     connectButton_->setText("switch_auto/connection/connect"_i18n);
     offlineButton_->setText("switch_auto/connection/offline"_i18n);
     connectButton_->registerClickAction([this](brls::View*) {

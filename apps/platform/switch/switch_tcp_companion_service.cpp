@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <borealis.hpp>
 
 namespace switch_auto::platform::switch_platform {
 namespace {
@@ -70,7 +71,10 @@ bool permanentProtocolError(CompanionError error) {
 std::optional<CompanionEndpoint> discoverCompanion(
     const CompanionPairingInfo& identity, const std::atomic<bool>& stopRequested) {
     const int socketFd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (socketFd < 0) return std::nullopt;
+    if (socketFd < 0) {
+        brls::Logger::error("Companion discovery: socket creation failed errno={}", errno);
+        return std::nullopt;
+    }
     int enabled = 1;
     ::setsockopt(socketFd, SOL_SOCKET, SO_BROADCAST, &enabled, sizeof(enabled));
     timeval timeout{};
@@ -107,6 +111,8 @@ std::optional<CompanionEndpoint> discoverCompanion(
     std::optional<CompanionEndpoint> endpoint;
     for (int attempt = 0; attempt < kDiscoveryAttempts && !stopRequested && !endpoint;
          ++attempt) {
+        brls::Logger::info("Companion discovery: probe {}/{}", attempt + 1,
+            kDiscoveryAttempts);
         ::sendto(socketFd, probe.data(), probe.size(), 0,
             reinterpret_cast<sockaddr*>(&globalTarget), sizeof(globalTarget));
         if (subnetTarget.sin_addr.s_addr != globalTarget.sin_addr.s_addr) {
@@ -123,6 +129,8 @@ std::optional<CompanionEndpoint> discoverCompanion(
             char address[INET_ADDRSTRLEN]{};
             if (::inet_ntop(AF_INET, &sender.sin_addr, address, sizeof(address))) {
                 endpoint = CompanionEndpoint{address, kCompanionPort};
+                brls::Logger::info("Companion discovery: reply from {}:{}", address,
+                    kCompanionPort);
             }
         }
     }
@@ -134,8 +142,14 @@ std::optional<CompanionEndpoint> discoverCompanion(
 
 SwitchTcpCompanionService::SwitchTcpCompanionService() {
     auto identity = SwitchDeviceIdentity::loadOrCreate();
-    if (identity) identity_ = std::move(identity.value());
-    else publish({CompanionConnectionState::Failed, identity.error()});
+    if (identity) {
+        identity_ = std::move(identity.value());
+        brls::Logger::info("Companion identity ready: deviceId={}",
+            identity_->pairingInfo().deviceId);
+    } else {
+        brls::Logger::error("Companion identity failed: {}", toString(identity.error()));
+        publish({CompanionConnectionState::Failed, identity.error()});
+    }
 }
 
 SwitchTcpCompanionService::~SwitchTcpCompanionService() {
@@ -147,6 +161,7 @@ Result<void, CompanionError> SwitchTcpCompanionService::startAutomaticPairing() 
         return Result<void, CompanionError>::failure(CompanionError::TransportUnavailable);
     }
     disconnect();
+    brls::Logger::info("Companion pairing: automatic discovery requested");
     stopRequested_ = false;
     publish({CompanionConnectionState::Discovering, CompanionError::None});
     worker_ = std::thread(&SwitchTcpCompanionService::runDiscovery, this);
@@ -177,6 +192,7 @@ void SwitchTcpCompanionService::disconnect() {
     stopRequested_ = true;
     waitCondition_.notify_all();
     if (worker_.joinable()) worker_.join();
+    brls::Logger::info("Companion transport: disconnected");
     publish({});
 }
 
@@ -195,10 +211,12 @@ void SwitchTcpCompanionService::runDiscovery() {
     const auto endpoint = discoverCompanion(info, stopRequested_);
     if (stopRequested_) return;
     if (!endpoint) {
+        brls::Logger::error("Companion discovery: timed out after {} attempts",
+            kDiscoveryAttempts);
         publish({CompanionConnectionState::Failed, CompanionError::DiscoveryTimeout});
         return;
     }
-    run(*endpoint, info.code);
+    run(*endpoint, info.pairingToken);
 }
 
 void SwitchTcpCompanionService::run(
@@ -210,11 +228,15 @@ void SwitchTcpCompanionService::run(
 
         const int socketFd = openSocket(endpoint);
         if (socketFd < 0) {
+            brls::Logger::error("Companion TCP: connection to {}:{} failed errno={}",
+                endpoint.address, endpoint.port, errno);
             session.transportDisconnected(CompanionError::TransportUnavailable);
             publish(session.status());
             if (!waitForRetry()) break;
             continue;
         }
+        brls::Logger::info("Companion TCP: connected to {}:{}", endpoint.address,
+            endpoint.port);
 
         CompanionError failure = CompanionError::None;
         const auto pairRequest = session.begin(
@@ -226,6 +248,8 @@ void SwitchTcpCompanionService::run(
             !receiveLine(socketFd, response)) {
             failure = pairRequest ? CompanionError::ConnectionClosed : pairRequest.error();
         } else {
+            brls::Logger::info("Companion protocol: pair.request sent deviceId={}",
+                identity_ ? identity_->pairingInfo().deviceId : "unknown");
             const auto pairResponse = session.receive(response);
             publish(session.status());
             if (!pairResponse) {
@@ -238,6 +262,7 @@ void SwitchTcpCompanionService::run(
                 const auto helloResponse = session.receive(response);
                 publish(session.status());
                 if (!helloResponse) failure = helloResponse.error();
+                else brls::Logger::info("Companion protocol: session online");
             }
         }
 
@@ -262,11 +287,15 @@ void SwitchTcpCompanionService::run(
         ::close(socketFd);
         if (stopRequested_) break;
         if (failure != CompanionError::None && permanentProtocolError(failure)) {
+            brls::Logger::error("Companion protocol: permanent failure {}",
+                toString(failure));
             publish(session.status());
             break;
         }
         session.transportDisconnected(
             failure == CompanionError::None ? CompanionError::ConnectionClosed : failure);
+        brls::Logger::error("Companion transport: session ended ({})",
+            toString(session.status().lastError));
         publish(session.status());
         if (!waitForRetry()) break;
     }

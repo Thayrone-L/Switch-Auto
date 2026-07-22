@@ -3,6 +3,7 @@
 #include <borealis.hpp>
 
 #include "switch_auto/companion.hpp"
+#include "qr_code_view.hpp"
 
 namespace switch_auto::ui {
 
@@ -21,7 +22,7 @@ private:
     bool closing_ = false;
 
     BRLS_BIND(brls::Label, deviceIdLabel_, "device-id");
-    BRLS_BIND(brls::Label, pairingCodeLabel_, "pairing-code");
+    BRLS_BIND(QrCodeView, qrCode_, "pairing-qr");
     BRLS_BIND(brls::Label, statusLabel_, "connection-status");
     BRLS_BIND(brls::Button, connectButton_, "connect-button");
     BRLS_BIND(brls::Button, offlineButton_, "offline-button");

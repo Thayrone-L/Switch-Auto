@@ -17,7 +17,7 @@
     },
     "connection": {
         "title": "Connect Android Companion",
-        "description": "Enter this code in the Android app, then start automatic discovery.",
+        "description": "Scan this QR in the Android app. The first pairing starts automatically.",
         "device_id_label": "SWITCH IDENTITY",
         "ip_label": "Companion IP",
         "ip_placeholder": "Example: 10.171.194.141",
@@ -29,7 +29,7 @@
         "offline": "CONTINUE OFFLINE",
         "open": "CONFIGURE CONNECTION",
         "connected": "CONNECTED",
-        "ready": "Ready to connect",
+        "ready": "Scan the QR in the Companion app",
         "not_found": "Companion not found. Confirm that the server is running and try again.",
         "error": "Connection error: {}"
     },
