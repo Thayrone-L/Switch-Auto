@@ -12,6 +12,7 @@ $sources = @(
     (Join-Path $root 'core\source\canvas.cpp'),
     (Join-Path $root 'core\source\widget.cpp'),
     (Join-Path $root 'core\source\application.cpp'),
+    (Join-Path $root 'core\source\companion.cpp'),
     (Join-Path $root 'tests\core_tests.cpp')
 )
 
@@ -21,4 +22,3 @@ if ($LASTEXITCODE -ne 0) { throw "Core test build failed: $LASTEXITCODE" }
 
 & $output
 if ($LASTEXITCODE -ne 0) { throw "Core tests failed: $LASTEXITCODE" }
-

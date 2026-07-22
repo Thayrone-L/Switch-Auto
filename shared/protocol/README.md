@@ -17,6 +17,10 @@ Fluxo implementado:
 pair.request → pair.accepted → hello → hello.ack → ping ⇄ pong
 ```
 
+O Core representa esse fluxo em `CompanionSession`, uma máquina de estados sem
+dependências de socket ou plataforma. O transporte específico do Switch deve
+implementar `CompanionService` e alimentar a sessão com mensagens completas.
+
 Exemplos concretos estão em [`examples/`](examples/). O token retornado ainda não
 é persistido e o transporte ainda não é criptografado. TCP será substituído ou
 encapsulado por um transporte autenticado após validar a comunicação física.

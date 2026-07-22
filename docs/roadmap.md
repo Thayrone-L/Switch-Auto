@@ -2,7 +2,7 @@
 
 ## Marco 0 — Fundação
 
-- implementar as interfaces definidas no ADR 0001;
+- [x] implementar `Result` e o contrato inicial de `CompanionService`;
 - criar o Core, HAL, SDK interno e Widget Registry mínimos;
 - definir concorrência, tarefas assíncronas e cancelamento;
 - definir stack e requisitos de desenvolvimento;
@@ -10,7 +10,8 @@
 - [x] definir o protocolo experimental de handshake;
 - [x] criar Core, Widget Registry e renderer compartilhado;
 - [x] criar simulador Windows com serviços falsos;
-- compilar e validar o APK e o NRO nos dispositivos físicos.
+- [x] compilar e validar o APK e o NRO nos dispositivos físicos;
+- [x] validar o handshake usando o hotspot do Android.
 
 ## Marco 1 — Conexão
 

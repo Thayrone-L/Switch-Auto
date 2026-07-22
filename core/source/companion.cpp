@@ -1,0 +1,168 @@
+#include "switch_auto/companion.hpp"
+
+#include <algorithm>
+#include <cctype>
+
+namespace switch_auto {
+namespace {
+
+std::optional<std::string> stringField(std::string_view json, std::string_view name) {
+    const std::string key = "\"" + std::string(name) + "\"";
+    std::size_t position = json.find(key);
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find(':', position + key.size());
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find('"', position + 1);
+    if (position == std::string_view::npos) return std::nullopt;
+    const std::size_t end = json.find('"', position + 1);
+    if (end == std::string_view::npos) return std::nullopt;
+    return std::string(json.substr(position + 1, end - position - 1));
+}
+
+std::optional<std::uint32_t> unsignedField(std::string_view json, std::string_view name) {
+    const std::string key = "\"" + std::string(name) + "\"";
+    std::size_t position = json.find(key);
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find(':', position + key.size());
+    if (position == std::string_view::npos) return std::nullopt;
+    ++position;
+    while (position < json.size() && std::isspace(static_cast<unsigned char>(json[position]))) ++position;
+    if (position == json.size() || !std::isdigit(static_cast<unsigned char>(json[position]))) return std::nullopt;
+    std::uint32_t value = 0;
+    while (position < json.size() && std::isdigit(static_cast<unsigned char>(json[position]))) {
+        value = value * 10 + static_cast<std::uint32_t>(json[position++] - '0');
+    }
+    return value;
+}
+
+bool validPairingCode(std::string_view code) {
+    return code.size() == 6 && std::all_of(code.begin(), code.end(), [](char value) {
+        return std::isdigit(static_cast<unsigned char>(value));
+    });
+}
+
+std::string envelope(std::string_view payload) {
+    return "{\"version\":1," + std::string(payload) + "}\n";
+}
+
+}  // namespace
+
+Result<std::string, CompanionError> CompanionSession::begin(std::string_view pairingCode) {
+    reset();
+    if (!validPairingCode(pairingCode)) {
+        status_.state = CompanionConnectionState::Failed;
+        status_.lastError = CompanionError::InvalidPairingCode;
+        return Result<std::string, CompanionError>::failure(status_.lastError);
+    }
+    status_.state = CompanionConnectionState::Pairing;
+    return Result<std::string, CompanionError>::success(envelope(
+        "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"code\":\"" +
+        std::string(pairingCode) + "\""));
+}
+
+void CompanionSession::transportConnected() {
+    status_.state = CompanionConnectionState::Connecting;
+    status_.lastError = CompanionError::None;
+}
+
+Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std::string_view line) {
+    const auto version = unsignedField(line, "version");
+    const auto type = stringField(line, "type");
+    if (!version || !type) return fail(CompanionError::InvalidMessage);
+    if (*version != static_cast<std::uint32_t>(kProtocolVersion)) {
+        return fail(CompanionError::UnsupportedVersion);
+    }
+
+    if (status_.state == CompanionConnectionState::Pairing) {
+        if (*type == "pair.rejected") return fail(CompanionError::PairingRejected);
+        if (*type != "pair.accepted") return fail(CompanionError::UnexpectedMessage);
+        status_.sessionToken = stringField(line, "sessionToken");
+        if (!status_.sessionToken || status_.sessionToken->empty()) {
+            return fail(CompanionError::InvalidMessage);
+        }
+        status_.state = CompanionConnectionState::Handshaking;
+        return Result<std::optional<std::string>, CompanionError>::success(
+            envelope("\"type\":\"hello\",\"client\":\"switch-auto\""));
+    }
+
+    if (status_.state == CompanionConnectionState::Handshaking) {
+        if (*type != "hello.ack") return fail(CompanionError::UnexpectedMessage);
+        status_.state = CompanionConnectionState::Online;
+        status_.lastError = CompanionError::None;
+        return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
+    }
+
+    if (status_.state == CompanionConnectionState::Online) {
+        if (*type != "pong") return fail(CompanionError::UnexpectedMessage);
+        const auto sequence = unsignedField(line, "sequence");
+        if (!sequence || !pendingSequence_ || *sequence != *pendingSequence_) {
+            return fail(CompanionError::HeartbeatMismatch);
+        }
+        status_.lastSequence = *sequence;
+        pendingSequence_.reset();
+        return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
+    }
+
+    return fail(CompanionError::UnexpectedMessage);
+}
+
+Result<std::string, CompanionError> CompanionSession::heartbeat() {
+    if (status_.state != CompanionConnectionState::Online || pendingSequence_) {
+        return Result<std::string, CompanionError>::failure(CompanionError::NotOnline);
+    }
+    pendingSequence_ = nextSequence_++;
+    return Result<std::string, CompanionError>::success(envelope(
+        "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_)));
+}
+
+void CompanionSession::transportDisconnected(CompanionError reason) {
+    pendingSequence_.reset();
+    status_.state = CompanionConnectionState::Reconnecting;
+    status_.lastError = reason;
+}
+
+void CompanionSession::reset() {
+    status_ = {};
+    nextSequence_ = 1;
+    pendingSequence_.reset();
+}
+
+Result<std::optional<std::string>, CompanionError> CompanionSession::fail(CompanionError error) {
+    status_.state = CompanionConnectionState::Failed;
+    status_.lastError = error;
+    pendingSequence_.reset();
+    return Result<std::optional<std::string>, CompanionError>::failure(error);
+}
+
+const char* toString(CompanionConnectionState state) {
+    switch (state) {
+        case CompanionConnectionState::Disconnected: return "disconnected";
+        case CompanionConnectionState::Connecting: return "connecting";
+        case CompanionConnectionState::Pairing: return "pairing";
+        case CompanionConnectionState::Handshaking: return "handshaking";
+        case CompanionConnectionState::Online: return "online";
+        case CompanionConnectionState::Reconnecting: return "reconnecting";
+        case CompanionConnectionState::Failed: return "failed";
+    }
+    return "unknown";
+}
+
+const char* toString(CompanionError error) {
+    switch (error) {
+        case CompanionError::None: return "none";
+        case CompanionError::InvalidEndpoint: return "invalid_endpoint";
+        case CompanionError::InvalidPairingCode: return "invalid_pairing_code";
+        case CompanionError::InvalidMessage: return "invalid_message";
+        case CompanionError::UnsupportedVersion: return "unsupported_version";
+        case CompanionError::UnexpectedMessage: return "unexpected_message";
+        case CompanionError::PairingRejected: return "pairing_rejected";
+        case CompanionError::NotOnline: return "not_online";
+        case CompanionError::HeartbeatMismatch: return "heartbeat_mismatch";
+        case CompanionError::TransportUnavailable: return "transport_unavailable";
+        case CompanionError::ConnectionTimeout: return "connection_timeout";
+        case CompanionError::ConnectionClosed: return "connection_closed";
+    }
+    return "unknown";
+}
+
+}  // namespace switch_auto

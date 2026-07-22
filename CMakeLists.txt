@@ -21,6 +21,7 @@ add_subdirectory(extern/borealis/library)
 set(SWITCH_AUTO_SOURCES
     apps/ui/source/dashboard_view.cpp
     apps/ui/source/main.cpp
+    core/source/companion.cpp
 )
 
 if(PLATFORM_SWITCH)
