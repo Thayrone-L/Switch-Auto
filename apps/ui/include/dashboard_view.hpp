@@ -2,6 +2,7 @@
 
 #include <borealis.hpp>
 
+#include "switch_auto/companion.hpp"
 #include "switch_auto/services.hpp"
 
 namespace switch_auto::ui {
@@ -13,11 +14,13 @@ public:
 
     static brls::View* create();
     static void setRuntimeService(MutableRuntimeService* runtime);
+    static void setCompanionService(CompanionService* companion);
 
 private:
     void refresh();
 
     static MutableRuntimeService* runtime_;
+    static CompanionService* companion_;
     brls::RepeatingTimer refreshTimer_;
 
     BRLS_BIND(brls::Label, clockLabel_, "clock");

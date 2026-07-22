@@ -21,6 +21,10 @@ O Core representa esse fluxo em `CompanionSession`, uma máquina de estados sem
 dependências de socket ou plataforma. O transporte específico do Switch deve
 implementar `CompanionService` e alimentar a sessão com mensagens completas.
 
+A implementação atual do Switch usa uma thread de background, timeout de 10
+segundos, heartbeat a cada 5 segundos e nova tentativa após 3 segundos. Nenhuma
+operação de rede bloqueia a thread da interface Borealis.
+
 Exemplos concretos estão em [`examples/`](examples/). O token retornado ainda não
 é persistido e o transporte ainda não é criptografado. TCP será substituído ou
 encapsulado por um transporte autenticado após validar a comunicação física.

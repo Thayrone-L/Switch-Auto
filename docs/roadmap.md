@@ -17,9 +17,10 @@
 
 - carregar tema padrão e traduções `en-US`/`pt-BR`;
 - executar um widget oficial pelo lifecycle e Registry;
-- conexão manual por endereço IP;
-- WebSocket com heartbeat e reconexão;
-- tela de estado da conexão;
+- [x] conexão manual por endereço IP;
+- [x] transporte TCP assíncrono com heartbeat e reconexão;
+- [x] estado da conexão exibido na dashboard Borealis;
+- migrar o transporte experimental de TCP para WebSocket;
 - dados simulados nos dois lados.
 
 ## Marco 2 — Mídia e GPS

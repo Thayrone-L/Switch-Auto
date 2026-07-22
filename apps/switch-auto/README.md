@@ -18,5 +18,7 @@ O artefato é gerado em `apps/switch-auto/switch-auto.nro`. Copie-o para:
 ```
 
 A dashboard atual lê horário e bateria reais do console. O handshake TCP será
-reintegrado atrás de `CompanionService`, sem acoplar os widgets à rede ou ao
-Android Companion.
+executado de forma assíncrona atrás de `CompanionService`, sem acoplar a UI à
+rede ou ao Android Companion. Na inicialização, informe o IPv4 exibido no app
+Android e o código de seis dígitos. A dashboard mostrará as etapas da conexão e
+tentará reconectar automaticamente se o hotspot oscilar.

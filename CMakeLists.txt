@@ -26,6 +26,7 @@ set(SWITCH_AUTO_SOURCES
 
 if(PLATFORM_SWITCH)
     list(APPEND SWITCH_AUTO_SOURCES
+        apps/platform/switch/switch_tcp_companion_service.cpp
         extern/borealis/library/lib/platforms/switch/switch_wrapper.c
     )
 endif()
@@ -39,6 +40,9 @@ target_include_directories(switch-auto PRIVATE
     apps/ui/include
     core/include
 )
+if(PLATFORM_SWITCH)
+    target_include_directories(switch-auto PRIVATE apps/platform/switch)
+endif()
 target_compile_options(switch-auto PRIVATE
     -Wall
     -Wextra

@@ -56,7 +56,7 @@ public:
         const CompanionEndpoint& endpoint, std::string_view pairingCode) = 0;
     virtual void update() = 0;
     virtual void disconnect() = 0;
-    virtual const CompanionStatus& status() const = 0;
+    virtual CompanionStatus status() const = 0;
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,

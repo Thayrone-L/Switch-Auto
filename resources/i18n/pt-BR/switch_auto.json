@@ -7,7 +7,12 @@
     },
     "status": {
         "connected": "ANDROID CONECTADO",
-        "offline": "ANDROID OFFLINE"
+        "offline": "ANDROID OFFLINE",
+        "connecting": "CONECTANDO...",
+        "pairing": "PAREANDO...",
+        "handshaking": "INICIANDO SESSÃO...",
+        "reconnecting": "RECONECTANDO...",
+        "failed": "FALHA NA CONEXÃO"
     },
     "media": {
         "no_media": "SEM MÍDIA",

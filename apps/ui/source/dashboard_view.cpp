@@ -12,6 +12,7 @@ namespace switch_auto::ui {
 using namespace brls::literals;
 
 MutableRuntimeService* DashboardView::runtime_ = nullptr;
+CompanionService* DashboardView::companion_ = nullptr;
 
 namespace {
 
@@ -57,9 +58,21 @@ void DashboardView::setRuntimeService(MutableRuntimeService* runtime) {
     runtime_ = runtime;
 }
 
+void DashboardView::setCompanionService(CompanionService* companion) {
+    companion_ = companion;
+}
+
 void DashboardView::refresh() {
     if (!runtime_) return;
     updateRuntime(*runtime_);
+    auto& mutableState = runtime_->mutableState();
+    CompanionConnectionState connectionState = CompanionConnectionState::Disconnected;
+    if (companion_) {
+        companion_->update();
+        connectionState = companion_->status().state;
+        mutableState.companionConnected =
+            connectionState == CompanionConnectionState::Online;
+    }
     const auto& state = runtime_->current();
 
     char buffer[32]{};
@@ -72,9 +85,29 @@ void DashboardView::refresh() {
     std::snprintf(buffer, sizeof(buffer), "%d", state.speedKph);
     speedLabel_->setText(buffer);
     speedUnitLabel_->setText("switch_auto/dashboard/speed_unit"_i18n);
-    connectionLabel_->setText(
-        state.companionConnected ? "switch_auto/status/connected"_i18n
-                                 : "switch_auto/status/offline"_i18n);
+    switch (connectionState) {
+        case CompanionConnectionState::Connecting:
+            connectionLabel_->setText("switch_auto/status/connecting"_i18n);
+            break;
+        case CompanionConnectionState::Pairing:
+            connectionLabel_->setText("switch_auto/status/pairing"_i18n);
+            break;
+        case CompanionConnectionState::Handshaking:
+            connectionLabel_->setText("switch_auto/status/handshaking"_i18n);
+            break;
+        case CompanionConnectionState::Online:
+            connectionLabel_->setText("switch_auto/status/connected"_i18n);
+            break;
+        case CompanionConnectionState::Reconnecting:
+            connectionLabel_->setText("switch_auto/status/reconnecting"_i18n);
+            break;
+        case CompanionConnectionState::Failed:
+            connectionLabel_->setText("switch_auto/status/failed"_i18n);
+            break;
+        case CompanionConnectionState::Disconnected:
+            connectionLabel_->setText("switch_auto/status/offline"_i18n);
+            break;
+    }
     trackLabel_->setText(state.companionConnected
                              ? state.track
                              : "switch_auto/media/no_media"_i18n);
