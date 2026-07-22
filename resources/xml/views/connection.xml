@@ -1,0 +1,32 @@
+<brls:Box
+    width="auto"
+    height="auto"
+    axis="column"
+    paddingTop="46px"
+    paddingRight="110px"
+    paddingBottom="46px"
+    paddingLeft="110px"
+    backgroundColor="#090d14">
+
+    <brls:Label
+        text="@i18n/switch_auto/connection/title"
+        fontSize="38" height="58px" horizontalAlign="left" />
+    <brls:Label
+        text="@i18n/switch_auto/connection/description"
+        fontSize="20" height="58px" horizontalAlign="left" textColor="#91a0b5" />
+
+    <brls:Box
+        width="auto" height="auto" axis="column" grow="1.0"
+        paddingTop="20px" paddingRight="28px" paddingBottom="20px" paddingLeft="28px"
+        marginTop="18px" backgroundColor="#111925" cornerRadius="22">
+        <brls:InputCell id="companion-ip" height="72px" />
+        <brls:InputCell id="pairing-code" height="72px" />
+        <brls:Label
+            id="connection-status" text="@i18n/switch_auto/connection/ready"
+            fontSize="19" height="58px" horizontalAlign="left" textColor="#91a0b5" />
+        <brls:Box width="auto" height="68px" axis="row" marginTop="12px">
+            <brls:Button id="connect-button" text="@i18n/switch_auto/connection/connect" grow="1.0" />
+            <brls:Button id="offline-button" text="@i18n/switch_auto/connection/offline" grow="1.0" marginLeft="18px" />
+        </brls:Box>
+    </brls:Box>
+</brls:Box>

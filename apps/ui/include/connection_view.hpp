@@ -1,0 +1,32 @@
+#pragma once
+
+#include <borealis.hpp>
+
+#include "switch_auto/companion.hpp"
+
+namespace switch_auto::ui {
+
+class ConnectionView final : public brls::Box {
+public:
+    explicit ConnectionView(CompanionService& companion);
+    ~ConnectionView() override;
+
+private:
+    void connect();
+    void refreshStatus();
+    void close();
+
+    CompanionService& companion_;
+    brls::RepeatingTimer statusTimer_;
+    bool closing_ = false;
+
+    BRLS_BIND(brls::InputCell, ipInput_, "companion-ip");
+    BRLS_BIND(brls::InputCell, codeInput_, "pairing-code");
+    BRLS_BIND(brls::Label, statusLabel_, "connection-status");
+    BRLS_BIND(brls::Button, connectButton_, "connect-button");
+    BRLS_BIND(brls::Button, offlineButton_, "offline-button");
+};
+
+void openConnectionScreen(CompanionService* companion);
+
+}  // namespace switch_auto::ui

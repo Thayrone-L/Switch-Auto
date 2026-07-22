@@ -1,5 +1,7 @@
 #include "dashboard_view.hpp"
 
+#include "connection_view.hpp"
+
 #include <cstdio>
 #include <ctime>
 
@@ -41,6 +43,10 @@ void updateRuntime(MutableRuntimeService& runtime) {
 
 DashboardView::DashboardView() {
     inflateFromXMLRes("xml/views/dashboard.xml");
+    connectionButton_->registerClickAction([](brls::View*) {
+        openConnectionScreen(companion_);
+        return true;
+    });
     refresh();
     refreshTimer_.setCallback([this]() { refresh(); });
     refreshTimer_.start(1000);
@@ -108,6 +114,12 @@ void DashboardView::refresh() {
             connectionLabel_->setText("switch_auto/status/offline"_i18n);
             break;
     }
+    connectionButton_->setText(
+        state.companionConnected ? "switch_auto/connection/connected"_i18n
+                                 : "switch_auto/connection/open"_i18n);
+    connectionButton_->setState(
+        state.companionConnected ? brls::ButtonState::DISABLED
+                                 : brls::ButtonState::ENABLED);
     trackLabel_->setText(state.companionConnected
                              ? state.track
                              : "switch_auto/media/no_media"_i18n);

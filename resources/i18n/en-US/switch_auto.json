@@ -14,6 +14,22 @@
         "reconnecting": "RECONNECTING...",
         "failed": "CONNECTION FAILED"
     },
+    "connection": {
+        "title": "Connect Android Companion",
+        "description": "Enter the address and six-digit code displayed on your phone.",
+        "ip_label": "Companion IP",
+        "ip_placeholder": "Example: 10.171.194.141",
+        "ip_hint": "IPv4 address displayed by the Android app",
+        "code_label": "Pairing code",
+        "code_placeholder": "6 digits",
+        "code_hint": "Temporary code displayed by the Android app",
+        "connect": "CONNECT",
+        "offline": "CONTINUE OFFLINE",
+        "open": "CONFIGURE CONNECTION",
+        "connected": "CONNECTED",
+        "ready": "Ready to connect",
+        "error": "Connection error: {}"
+    },
     "media": {
         "no_media": "NO MEDIA",
         "companion_offline": "ANDROID COMPANION OFFLINE"

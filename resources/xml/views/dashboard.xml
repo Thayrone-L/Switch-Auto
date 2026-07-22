@@ -39,6 +39,7 @@
                 backgroundColor="#111925" cornerRadius="24">
                 <brls:Label text="@i18n/switch_auto/dashboard/companion" fontSize="18" height="34px" horizontalAlign="left" textColor="#91a0b5" />
                 <brls:Label id="connection" text="@i18n/switch_auto/status/offline" fontSize="25" height="auto" horizontalAlign="left" grow="1.0" />
+                <brls:Button id="connection-button" text="@i18n/switch_auto/connection/open" height="52px" />
             </brls:Box>
             <brls:Box
                 width="auto" height="auto" axis="column" grow="1.0" marginTop="24px"
