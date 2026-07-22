@@ -22,3 +22,6 @@ executado de forma assíncrona atrás de `CompanionService`, sem acoplar a UI à
 rede ou ao Android Companion. Na inicialização, informe o IPv4 exibido no app
 Android e o código de seis dígitos. A dashboard mostrará as etapas da conexão e
 tentará reconectar automaticamente se o hotspot oscilar.
+
+Logs de inicialização e erros fatais são gravados em
+`/switch/switch-auto/switch-auto.log` no cartão SD.

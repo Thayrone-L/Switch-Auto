@@ -1,5 +1,6 @@
 #include <borealis.hpp>
 
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 
@@ -60,6 +61,17 @@ int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
 #endif
+#ifdef __SWITCH__
+    std::FILE* diagnosticLog =
+        std::fopen("sdmc:/switch/switch-auto/switch-auto.log", "w");
+    if (diagnosticLog) {
+        std::setvbuf(diagnosticLog, nullptr, _IONBF, 0);
+        brls::Logger::setLogOutput(diagnosticLog);
+        brls::Logger::setThreadSafeLogging(true);
+    }
+#else
+    std::FILE* diagnosticLog = nullptr;
+#endif
     brls::Logger::setLogLevel(brls::LogLevel::LOG_INFO);
     brls::Platform::APP_LOCALE_DEFAULT = brls::LOCALE_AUTO;
 
@@ -86,10 +98,13 @@ int main(int argc, char** argv) {
     brls::Application::registerXMLView(
         "DashboardView", switch_auto::ui::DashboardView::create);
     brls::Application::pushActivity(new MainActivity());
-    if (companion &&
-        companion->status().state == switch_auto::CompanionConnectionState::Disconnected) {
-        switch_auto::ui::openConnectionScreen(companion.get());
-    }
+    switch_auto::CompanionService* initialCompanion = companion.get();
+    brls::sync([initialCompanion]() {
+        if (initialCompanion && initialCompanion->status().state ==
+                switch_auto::CompanionConnectionState::Disconnected) {
+            switch_auto::ui::openConnectionScreen(initialCompanion);
+        }
+    });
 
     while (brls::Application::mainLoop()) {
     }
@@ -97,5 +112,9 @@ int main(int argc, char** argv) {
     switch_auto::ui::DashboardView::setCompanionService(nullptr);
     companion.reset();
 #endif
+    if (diagnosticLog) {
+        brls::Logger::setLogOutput(nullptr);
+        std::fclose(diagnosticLog);
+    }
     return 0;
 }
