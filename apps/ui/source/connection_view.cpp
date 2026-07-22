@@ -33,14 +33,9 @@ ConnectionView::ConnectionView(CompanionService& companion) : companion_(compani
     brls::Logger::info("Connection screen stage: inflating-xml");
     inflateFromXMLRes("xml/views/connection.xml");
     brls::Logger::info("Connection screen stage: xml-ready");
-    ipInput_->init(
-        "switch_auto/connection/ip_label"_i18n, "", {},
-        "switch_auto/connection/ip_placeholder"_i18n,
-        "switch_auto/connection/ip_hint"_i18n, 45);
-    codeInput_->init(
-        "switch_auto/connection/code_label"_i18n, "", {},
-        "switch_auto/connection/code_placeholder"_i18n,
-        "switch_auto/connection/code_hint"_i18n, 6);
+    const auto pairing = companion_.pairingInfo();
+    deviceIdLabel_->setText(pairing ? pairing->deviceId : "-");
+    pairingCodeLabel_->setText(pairing ? pairing->code : "------");
     connectButton_->setText("switch_auto/connection/connect"_i18n);
     offlineButton_->setText("switch_auto/connection/offline"_i18n);
     connectButton_->registerClickAction([this](brls::View*) {
@@ -62,8 +57,7 @@ ConnectionView::~ConnectionView() {
 }
 
 void ConnectionView::connect() {
-    const auto result = companion_.connect(
-        {ipInput_->getValue(), kCompanionPort}, codeInput_->getValue());
+    const auto result = companion_.startAutomaticPairing();
     if (!result) {
         statusLabel_->setText(brls::getStr(
             "switch_auto/connection/error", toString(result.error())));

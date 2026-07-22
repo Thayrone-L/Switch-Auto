@@ -19,8 +19,16 @@
         width="auto" height="auto" axis="column" grow="1.0"
         paddingTop="20px" paddingRight="28px" paddingBottom="20px" paddingLeft="28px"
         marginTop="18px" backgroundColor="#111925" cornerRadius="22">
-        <brls:InputCell id="companion-ip" height="72px" />
-        <brls:InputCell id="pairing-code" height="72px" />
+        <brls:Label
+            text="@i18n/switch_auto/connection/device_id_label"
+            fontSize="17" height="30px" horizontalAlign="left" textColor="#91a0b5" />
+        <brls:Label
+            id="device-id" text="-" fontSize="21" height="42px" horizontalAlign="left" />
+        <brls:Label
+            text="@i18n/switch_auto/connection/code_label"
+            fontSize="17" height="30px" horizontalAlign="left" textColor="#91a0b5" />
+        <brls:Label
+            id="pairing-code" text="------" fontSize="58" height="82px" horizontalAlign="center" />
         <brls:Label
             id="connection-status" text="@i18n/switch_auto/connection/ready"
             fontSize="19" height="58px" horizontalAlign="left" textColor="#91a0b5" />

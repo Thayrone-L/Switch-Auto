@@ -7,6 +7,7 @@ import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -16,10 +17,11 @@ import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.Inet4Address
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
-import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -27,20 +29,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 private const val PROTOCOL_VERSION = 1
 private const val SERVER_PORT = 38471
+private const val DISCOVERY_PORT = 38472
 
 class MainActivity : Activity() {
     private val executor: ExecutorService = Executors.newCachedThreadPool()
     private val running = AtomicBoolean(false)
-    private val random = SecureRandom()
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
-    private lateinit var codeView: TextView
+    private lateinit var codeInput: EditText
     private lateinit var logView: TextView
     private lateinit var toggleButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
-    @Volatile private var pairingCode: String = generatePairingCode()
+    @Volatile private var discoverySocket: DatagramSocket? = null
+    @Volatile private var pairingCode: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,8 +73,12 @@ class MainActivity : Activity() {
 
         statusView = label("Stopped", 20f)
         addressView = label("IP: unavailable", 18f)
-        codeView = label("------", 40f).apply {
+        codeInput = EditText(this).apply {
+            hint = "Switch pairing code"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
             gravity = Gravity.CENTER_HORIZONTAL
+            textSize = 30f
             setPadding(0, padding, 0, padding)
         }
         toggleButton = Button(this).apply {
@@ -88,7 +95,7 @@ class MainActivity : Activity() {
 
         root.addView(statusView)
         root.addView(addressView)
-        root.addView(codeView)
+        root.addView(codeInput)
         root.addView(toggleButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(label("Event log", 20f).apply { setPadding(0, padding, 0, 0) })
@@ -106,7 +113,12 @@ class MainActivity : Activity() {
 
     private fun startServer() {
         if (!running.compareAndSet(false, true)) return
-        pairingCode = generatePairingCode()
+        pairingCode = codeInput.text.toString()
+        if (pairingCode.isNotEmpty() && !pairingCode.matches(Regex("\\d{6}"))) {
+            running.set(false)
+            statusView.text = "Enter a valid 6-digit Switch code"
+            return
+        }
         refreshConnectionDetails()
         statusView.text = "Starting..."
         toggleButton.text = "Stop server"
@@ -135,12 +147,15 @@ class MainActivity : Activity() {
                 }
             }
         }
+        executor.execute { runDiscoveryResponder() }
     }
 
     private fun stopServer() {
         running.set(false)
         serverSocket?.close()
+        discoverySocket?.close()
         serverSocket = null
+        discoverySocket = null
         if (::statusView.isInitialized) {
             statusView.text = "Stopped"
             toggleButton.text = "Start server"
@@ -175,8 +190,16 @@ class MainActivity : Activity() {
 
                     when (request.optString("type")) {
                         "pair.request" -> {
-                            if (request.optString("code") == pairingCode) {
+                            val deviceId = request.optString("deviceId")
+                            val suppliedCode = request.optString("code")
+                            val savedCode = getPreferences(MODE_PRIVATE)
+                                .getString("paired.$deviceId", null)
+                            if (deviceId.isNotBlank() &&
+                                (suppliedCode == savedCode ||
+                                 (pairingCode.isNotEmpty() && suppliedCode == pairingCode))) {
                                 paired = true
+                                getPreferences(MODE_PRIVATE).edit()
+                                    .putString("paired.$deviceId", suppliedCode).apply()
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
                                 runOnUiThread { statusView.text = "Switch paired: $remote" }
@@ -218,6 +241,33 @@ class MainActivity : Activity() {
         appendLog("TX $line")
     }
 
+    private fun runDiscoveryResponder() {
+        try {
+            DatagramSocket(DISCOVERY_PORT).use { socket ->
+                discoverySocket = socket
+                socket.broadcast = true
+                val buffer = ByteArray(1024)
+                while (running.get()) {
+                    val request = DatagramPacket(buffer, buffer.size)
+                    socket.receive(request)
+                    val payload = String(request.data, 0, request.length, Charsets.UTF_8)
+                    val json = try { JSONObject(payload.trim()) } catch (_: Exception) { continue }
+                    if (json.optInt("version") != PROTOCOL_VERSION ||
+                        json.optString("type") != "discover.request") continue
+                    val response = message("discover.reply")
+                        .put("server", "android-companion")
+                        .toString().toByteArray(Charsets.UTF_8)
+                    socket.send(DatagramPacket(response, response.size, request.address, request.port))
+                    appendLog("Discovery reply sent to ${request.address.hostAddress}")
+                }
+            }
+        } catch (error: Exception) {
+            if (running.get()) appendLog("Discovery error: ${error.message}")
+        } finally {
+            discoverySocket = null
+        }
+    }
+
     private fun appendLog(message: String) {
         runOnUiThread {
             if (::logView.isInitialized) logView.append("$message\n")
@@ -227,10 +277,7 @@ class MainActivity : Activity() {
     private fun refreshConnectionDetails() {
         if (!::addressView.isInitialized) return
         addressView.text = "IP: ${findIpv4Address() ?: "unavailable"}   Port: $SERVER_PORT"
-        codeView.text = pairingCode
     }
-
-    private fun generatePairingCode(): String = "%06d".format(random.nextInt(1_000_000))
 
     private fun findIpv4Address(): String? = try {
         NetworkInterface.getNetworkInterfaces().toList()
@@ -242,4 +289,3 @@ class MainActivity : Activity() {
         null
     }
 }
-

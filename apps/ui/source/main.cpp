@@ -40,9 +40,16 @@ public:
         status_.lastError = switch_auto::CompanionError::None;
         return switch_auto::Result<void, switch_auto::CompanionError>::success();
     }
+    switch_auto::Result<void, switch_auto::CompanionError> startAutomaticPairing() override {
+        status_.state = switch_auto::CompanionConnectionState::Online;
+        return switch_auto::Result<void, switch_auto::CompanionError>::success();
+    }
     void update() override {}
     void disconnect() override { status_ = {}; }
     switch_auto::CompanionStatus status() const override { return status_; }
+    std::optional<switch_auto::CompanionPairingInfo> pairingInfo() const override {
+        return switch_auto::CompanionPairingInfo{"SIMULATOR", "123456"};
+    }
 
 private:
     switch_auto::CompanionStatus status_;

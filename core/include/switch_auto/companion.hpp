@@ -49,21 +49,29 @@ struct CompanionStatus {
     std::uint32_t lastSequence = 0;
 };
 
+struct CompanionPairingInfo {
+    std::string deviceId;
+    std::string code;
+};
+
 class CompanionService {
 public:
     virtual ~CompanionService() = default;
     virtual Result<void, CompanionError> connect(
         const CompanionEndpoint& endpoint, std::string_view pairingCode) = 0;
+    virtual Result<void, CompanionError> startAutomaticPairing() = 0;
     virtual void update() = 0;
     virtual void disconnect() = 0;
     virtual CompanionStatus status() const = 0;
+    virtual std::optional<CompanionPairingInfo> pairingInfo() const = 0;
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,
 // threads and timeouts; this class only validates and advances the session.
 class CompanionSession {
 public:
-    Result<std::string, CompanionError> begin(std::string_view pairingCode);
+    Result<std::string, CompanionError> begin(
+        std::string_view pairingCode, std::string_view deviceId = {});
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
     Result<std::string, CompanionError> heartbeat();
     void transportConnected();

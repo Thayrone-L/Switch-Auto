@@ -20,6 +20,8 @@
 - [x] conexão manual por endereço IP;
 - [x] transporte TCP assíncrono com heartbeat e reconexão;
 - [x] estado da conexão exibido na dashboard Borealis;
+- [x] identidade persistente gerada pelo Switch;
+- [x] descoberta automática do Companion, sem IP manual;
 - migrar o transporte experimental de TCP para WebSocket;
 - dados simulados nos dois lados.
 
@@ -32,7 +34,7 @@
 
 ## Marco 3 — Experiência automotiva
 
-- descoberta automática na rede;
+- endurecer o pareamento com desafio criptográfico e transporte autenticado;
 - temas claro e escuro;
 - perfis e layouts customizáveis;
 - otimizações para inicialização e uso prolongado.

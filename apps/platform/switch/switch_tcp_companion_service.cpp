@@ -12,6 +12,7 @@ namespace switch_auto::platform::switch_platform {
 namespace {
 
 constexpr int kSocketTimeoutSeconds = 10;
+constexpr std::uint16_t kDiscoveryPort = 38472;
 constexpr auto kReconnectDelay = std::chrono::seconds(3);
 constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
 constexpr std::size_t kMaximumMessageSize = 4096;
@@ -64,10 +65,66 @@ bool permanentProtocolError(CompanionError error) {
            error == CompanionError::InvalidMessage;
 }
 
+std::optional<CompanionEndpoint> discoverCompanion(
+    const CompanionPairingInfo& identity, const std::atomic<bool>& stopRequested) {
+    const int socketFd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socketFd < 0) return std::nullopt;
+    int enabled = 1;
+    ::setsockopt(socketFd, SOL_SOCKET, SO_BROADCAST, &enabled, sizeof(enabled));
+    timeval timeout{};
+    timeout.tv_sec = 2;
+    ::setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    sockaddr_in target{};
+    target.sin_family = AF_INET;
+    target.sin_port = htons(kDiscoveryPort);
+    target.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    const std::string probe =
+        "{\"version\":1,\"type\":\"discover.request\",\"deviceId\":\"" +
+        identity.deviceId + "\"}\n";
+
+    std::optional<CompanionEndpoint> endpoint;
+    while (!stopRequested && !endpoint) {
+        ::sendto(socketFd, probe.data(), probe.size(), 0,
+            reinterpret_cast<sockaddr*>(&target), sizeof(target));
+        char buffer[512]{};
+        sockaddr_in sender{};
+        socklen_t senderLength = sizeof(sender);
+        const ssize_t received = ::recvfrom(socketFd, buffer, sizeof(buffer) - 1, 0,
+            reinterpret_cast<sockaddr*>(&sender), &senderLength);
+        if (received > 0 && std::strstr(buffer, "\"type\":\"discover.reply\"") &&
+            std::strstr(buffer, "\"version\":1")) {
+            char address[INET_ADDRSTRLEN]{};
+            if (::inet_ntop(AF_INET, &sender.sin_addr, address, sizeof(address))) {
+                endpoint = CompanionEndpoint{address, kCompanionPort};
+            }
+        }
+    }
+    ::close(socketFd);
+    return endpoint;
+}
+
 }  // namespace
+
+SwitchTcpCompanionService::SwitchTcpCompanionService() {
+    auto identity = SwitchDeviceIdentity::loadOrCreate();
+    if (identity) identity_ = std::move(identity.value());
+    else publish({CompanionConnectionState::Failed, identity.error()});
+}
 
 SwitchTcpCompanionService::~SwitchTcpCompanionService() {
     disconnect();
+}
+
+Result<void, CompanionError> SwitchTcpCompanionService::startAutomaticPairing() {
+    if (!identity_) {
+        return Result<void, CompanionError>::failure(CompanionError::TransportUnavailable);
+    }
+    disconnect();
+    stopRequested_ = false;
+    publish({CompanionConnectionState::Connecting, CompanionError::None});
+    worker_ = std::thread(&SwitchTcpCompanionService::runDiscovery, this);
+    return Result<void, CompanionError>::success();
 }
 
 Result<void, CompanionError> SwitchTcpCompanionService::connect(
@@ -102,6 +159,22 @@ CompanionStatus SwitchTcpCompanionService::status() const {
     return status_;
 }
 
+std::optional<CompanionPairingInfo> SwitchTcpCompanionService::pairingInfo() const {
+    if (!identity_) return std::nullopt;
+    return identity_->pairingInfo();
+}
+
+void SwitchTcpCompanionService::runDiscovery() {
+    const CompanionPairingInfo info = identity_->pairingInfo();
+    const auto endpoint = discoverCompanion(info, stopRequested_);
+    if (stopRequested_) return;
+    if (!endpoint) {
+        publish({CompanionConnectionState::Failed, CompanionError::TransportUnavailable});
+        return;
+    }
+    run(*endpoint, info.code);
+}
+
 void SwitchTcpCompanionService::run(
     CompanionEndpoint endpoint, std::string pairingCode) {
     while (!stopRequested_) {
@@ -118,7 +191,8 @@ void SwitchTcpCompanionService::run(
         }
 
         CompanionError failure = CompanionError::None;
-        const auto pairRequest = session.begin(pairingCode);
+        const auto pairRequest = session.begin(
+            pairingCode, identity_ ? identity_->pairingInfo().deviceId : "");
         publish(session.status());
         std::string response;
 

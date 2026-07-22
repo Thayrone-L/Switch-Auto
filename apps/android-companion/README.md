@@ -22,11 +22,14 @@ O APK será criado como `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Teste
 
-1. Toque em **Start server**.
-2. Anote o IPv4, a porta `38471` e o código de seis dígitos.
+1. Abra a tela de conexão no Switch e anote o código estável de seis dígitos.
+2. Digite esse código no Companion e toque em **Start server**.
 3. Conecte o Switch à mesma rede ou ao hotspot do telefone.
-4. Informe IP e código no NRO.
-5. Observe os eventos `pair.request`, `hello` e `ping` no log do aplicativo.
+4. Toque em **Localizar e conectar** no NRO; o IP é descoberto automaticamente.
+5. Observe os eventos `discover.request`, `pair.request`, `hello` e `ping` no log.
 
-Este protótipo não oferece criptografia nem token persistente e não deve ser
+Depois do primeiro pareamento, o Companion memoriza o identificador do Switch e
+o código correspondente. Não é preciso redigitar o código nas conexões seguintes.
+
+Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

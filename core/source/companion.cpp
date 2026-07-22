@@ -47,7 +47,8 @@ std::string envelope(std::string_view payload) {
 
 }  // namespace
 
-Result<std::string, CompanionError> CompanionSession::begin(std::string_view pairingCode) {
+Result<std::string, CompanionError> CompanionSession::begin(
+    std::string_view pairingCode, std::string_view deviceId) {
     reset();
     if (!validPairingCode(pairingCode)) {
         status_.state = CompanionConnectionState::Failed;
@@ -55,9 +56,12 @@ Result<std::string, CompanionError> CompanionSession::begin(std::string_view pai
         return Result<std::string, CompanionError>::failure(status_.lastError);
     }
     status_.state = CompanionConnectionState::Pairing;
+    const std::string identityField = deviceId.empty()
+        ? ""
+        : ",\"deviceId\":\"" + std::string(deviceId) + "\"";
     return Result<std::string, CompanionError>::success(envelope(
         "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"code\":\"" +
-        std::string(pairingCode) + "\""));
+        std::string(pairingCode) + "\"" + identityField));
 }
 
 void CompanionSession::transportConnected() {

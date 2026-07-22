@@ -20,8 +20,8 @@ private:
     brls::RepeatingTimer statusTimer_;
     bool closing_ = false;
 
-    BRLS_BIND(brls::InputCell, ipInput_, "companion-ip");
-    BRLS_BIND(brls::InputCell, codeInput_, "pairing-code");
+    BRLS_BIND(brls::Label, deviceIdLabel_, "device-id");
+    BRLS_BIND(brls::Label, pairingCodeLabel_, "pairing-code");
     BRLS_BIND(brls::Label, statusLabel_, "connection-status");
     BRLS_BIND(brls::Button, connectButton_, "connect-button");
     BRLS_BIND(brls::Button, offlineButton_, "offline-button");
