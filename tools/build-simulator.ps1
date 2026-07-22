@@ -3,28 +3,43 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$compiler = 'C:\devkitPro\msys2\opt\bin\x86_64-w64-mingw32-g++.exe'
+$toolchainRoot = 'C:\devkitPro\msys2\opt\bin'
+$compiler = Join-Path $toolchainRoot 'x86_64-w64-mingw32-g++.exe'
+$cCompiler = Join-Path $toolchainRoot 'x86_64-w64-mingw32-gcc.exe'
+$make = 'C:\devkitPro\msys2\usr\bin\make.exe'
+$buildDirectory = Join-Path $root 'build\borealis-desktop'
 $outputDirectory = Join-Path $root 'apps\simulator\build'
 $output = Join-Path $outputDirectory 'switch-auto-simulator.exe'
+$virtualDrive = 'S:'
 
 if (-not (Test-Path -LiteralPath $compiler)) {
     throw "Desktop compiler not found at $compiler"
 }
 
-New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-
-$sources = @(
-    (Join-Path $root 'core\source\canvas.cpp'),
-    (Join-Path $root 'core\source\widget.cpp'),
-    (Join-Path $root 'core\source\application.cpp'),
-    (Join-Path $root 'apps\simulator\source\main.cpp')
-)
-
-& $compiler @sources '-std=c++17' '-O2' '-Wall' '-Wextra' '-municode' '-mwindows' `
-    '-I' (Join-Path $root 'core\include') '-o' $output '-lgdi32' '-static'
-if ($LASTEXITCODE -ne 0) {
-    throw "Simulator build failed with exit code $LASTEXITCODE."
+if (Test-Path -LiteralPath "$virtualDrive\") {
+    throw "Drive $virtualDrive is already in use."
 }
 
-Write-Output $output
+try {
+    & subst $virtualDrive $root
+    if ($LASTEXITCODE -ne 0) { throw "Could not map $virtualDrive to the repository." }
 
+    & cmake -S '/s' -B '/s/build/borealis-desktop' `
+        -G 'Unix Makefiles' `
+        -DPLATFORM_DESKTOP=ON `
+        -DCMAKE_BUILD_TYPE=Release `
+        '-DCMAKE_MAKE_PROGRAM=/usr/bin/make.exe' `
+        '-DCMAKE_TOOLCHAIN_FILE=/s/cmake/mingw-toolchain.cmake'
+    if ($LASTEXITCODE -ne 0) { throw "Simulator configuration failed." }
+
+    & cmake --build '/s/build/borealis-desktop' --parallel
+    if ($LASTEXITCODE -ne 0) { throw "Simulator build failed." }
+
+    New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+    Copy-Item -LiteralPath (Join-Path $buildDirectory 'switch-auto.exe') -Destination $output -Force
+    Copy-Item -LiteralPath (Join-Path $buildDirectory 'resources') -Destination $outputDirectory -Recurse -Force
+    Write-Output $output
+}
+finally {
+    & subst $virtualDrive /D 2>$null
+}

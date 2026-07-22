@@ -76,6 +76,7 @@ Consulte:
 
 - [Arquitetura e princípios](docs/architecture.md);
 - [ADR 0001 — Fundação do Core](docs/decisions/0001-core-foundation.md);
+- [ADR 0003 — Borealis como camada de interface](docs/decisions/0003-borealis-ui.md);
 - [Roadmap](docs/roadmap.md).
 
 ## Escopo da V1
@@ -106,9 +107,12 @@ Consulte:
 switch-auto/
 ├── apps/
 │   ├── android-companion/  Aplicativo auxiliar para Android
-│   ├── simulator/          Simulador Windows do Core compartilhado
+│   ├── simulator/          Artefatos do simulador Windows
 │   └── switch-auto/        Homebrew para Nintendo Switch
-├── core/                   Core, renderer, SDK interno e widgets
+│   └── ui/                 Interface Borealis compartilhada
+├── core/                   Core, SDK interno e widgets
+├── extern/borealis/        UI Kit versionado como submódulo
+├── resources/              Layouts e traduções do Switch Auto
 ├── docs/
 │   ├── decisions/          Registros de decisões arquiteturais
 │   ├── architecture.md     Arquitetura normativa
@@ -125,10 +129,10 @@ O projeto está no **Marco 0 — Fundação**:
 - [x] visão e princípios arquiteturais;
 - [x] lifecycle, modelo de erros e fronteiras entre módulos;
 - [x] persistência, versionamento e estratégia de fallback;
-- [ ] definição final da stack;
-- [ ] projeto compilável do Switch;
-- [ ] projeto compilável do Android Companion;
-- [ ] primeira versão do protocolo;
+- [x] definição inicial da stack;
+- [x] projeto compilável do Switch;
+- [x] projeto compilável do Android Companion;
+- [x] primeira versão do protocolo;
 - [x] primeiros widgets executados pelo Core compartilhado.
 
 ## Desenvolvimento
@@ -136,9 +140,9 @@ O projeto está no **Marco 0 — Fundação**:
 As stacks adotadas inicialmente são:
 
 - Core e Switch: C++17, devkitPro e libnx;
-- simulador: o mesmo Core C++17 com apresentação Win32;
+- interface e simulador: Borealis v2.1.0, XML, Yoga e NanoVG;
 - Android: Kotlin e Jetpack Compose;
-- renderização: framebuffer de software compartilhado em `1280×720`;
+- renderização: a mesma árvore Borealis no Switch e no Windows;
 - comunicação experimental: TCP com mensagens JSON versionadas.
 
 Consulte os READMEs de cada aplicação para instruções de build e execução.

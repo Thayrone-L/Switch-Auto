@@ -1,6 +1,6 @@
 # ADR 0002 — Renderer de software compartilhado
 
-- Estado: Aceita
+- Estado: Substituída pela ADR 0003
 - Data: 2026-07-21
 - Escopo: Core, Switch e simulador desktop
 
@@ -32,4 +32,3 @@ futuro, mas não poderão introduzir uma segunda árvore de layout.
 - o renderer inicial tem menos recursos tipográficos e gráficos;
 - desempenho e comportamento de hardware ainda exigem teste no console;
 - assets e fontes futuras precisarão ter processamento determinístico.
-

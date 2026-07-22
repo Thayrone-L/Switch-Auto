@@ -1,0 +1,16 @@
+{
+    "title": "SWITCH AUTO",
+    "dashboard": {
+        "speed_unit": "km/h",
+        "companion": "COMPANION",
+        "now_playing": "NOW PLAYING"
+    },
+    "status": {
+        "connected": "ANDROID CONNECTED",
+        "offline": "ANDROID OFFLINE"
+    },
+    "media": {
+        "no_media": "NO MEDIA",
+        "companion_offline": "ANDROID COMPANION OFFLINE"
+    }
+}

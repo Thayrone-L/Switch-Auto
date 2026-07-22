@@ -1,24 +1,22 @@
 # Switch Auto NRO
 
-Aplicação homebrew que executa o Core, o Widget Registry, os widgets oficiais e
-o renderer compartilhado do Switch Auto.
+Aplicação homebrew do Switch Auto, renderizada pelo Borealis com a mesma
+interface XML usada no simulador Windows.
 
 ## Build
 
-No Windows, execute a partir da raiz do repositório:
+Na raiz do repositório:
 
 ```powershell
-.\tools\build-switch.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\build-switch.ps1
 ```
 
-O artefato será gerado como `apps/switch-auto/switch-auto.nro`. Copie-o para:
+O artefato é gerado em `apps/switch-auto/switch-auto.nro`. Copie-o para:
 
 ```text
 /switch/switch-auto/switch-auto.nro
 ```
 
-O NRO atual apresenta a primeira dashboard do Core e lê horário e bateria reais
-do console. Pressione `+` para encerrar.
-
-O handshake TCP já validado será reintegrado como uma implementação de
-`CompanionService`; ele não faz parte temporariamente desta primeira tela do Core.
+A dashboard atual lê horário e bateria reais do console. O handshake TCP será
+reintegrado atrás de `CompanionService`, sem acoplar os widgets à rede ou ao
+Android Companion.
