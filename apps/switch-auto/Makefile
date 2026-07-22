@@ -11,9 +11,9 @@ include $(DEVKITPRO)/libnx/switch_rules
 
 TARGET      := switch-auto
 BUILD       := build
-SOURCES     := source
+SOURCES     := source ../../core/source
 DATA        := data
-INCLUDES    := include
+INCLUDES    := include ../../core/include
 
 APP_TITLE   := Switch Auto
 APP_AUTHOR  := Switch Auto contributors
@@ -79,4 +79,3 @@ $(OFILES_SRC): $(HFILES_BIN)
 
 -include $(DEPENDS)
 endif
-

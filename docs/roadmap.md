@@ -8,6 +8,8 @@
 - definir stack e requisitos de desenvolvimento;
 - [x] criar os projetos mínimos para Android e Switch;
 - [x] definir o protocolo experimental de handshake;
+- [x] criar Core, Widget Registry e renderer compartilhado;
+- [x] criar simulador Windows com serviços falsos;
 - compilar e validar o APK e o NRO nos dispositivos físicos.
 
 ## Marco 1 — Conexão

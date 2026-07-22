@@ -106,7 +106,9 @@ Consulte:
 switch-auto/
 ├── apps/
 │   ├── android-companion/  Aplicativo auxiliar para Android
+│   ├── simulator/          Simulador Windows do Core compartilhado
 │   └── switch-auto/        Homebrew para Nintendo Switch
+├── core/                   Core, renderer, SDK interno e widgets
 ├── docs/
 │   ├── decisions/          Registros de decisões arquiteturais
 │   ├── architecture.md     Arquitetura normativa
@@ -127,19 +129,19 @@ O projeto está no **Marco 0 — Fundação**:
 - [ ] projeto compilável do Switch;
 - [ ] projeto compilável do Android Companion;
 - [ ] primeira versão do protocolo;
-- [ ] primeiro widget funcional.
+- [x] primeiros widgets executados pelo Core compartilhado.
 
 ## Desenvolvimento
 
-As stacks consideradas inicialmente são:
+As stacks adotadas inicialmente são:
 
-- Switch: C++, devkitPro, libnx e SDL2;
+- Core e Switch: C++17, devkitPro e libnx;
+- simulador: o mesmo Core C++17 com apresentação Win32;
 - Android: Kotlin e Jetpack Compose;
-- comunicação: WebSocket com mensagens JSON versionadas.
+- renderização: framebuffer de software compartilhado em `1280×720`;
+- comunicação experimental: TCP com mensagens JSON versionadas.
 
-Essas escolhas ainda serão confirmadas antes da criação dos projetos de build.
-Instruções de configuração e compilação serão adicionadas quando o primeiro
-esqueleto executável estiver disponível.
+Consulte os READMEs de cada aplicação para instruções de build e execução.
 
 ## Segurança
 

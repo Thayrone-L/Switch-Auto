@@ -35,6 +35,7 @@ captures/
 
 # Native build artifacts
 build/
+apps/simulator/build/
 out/
 dist/
 obj/
@@ -47,4 +48,3 @@ obj/
 *.tmp
 *.swp
 *~
-

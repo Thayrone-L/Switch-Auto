@@ -1,0 +1,125 @@
+#include "switch_auto/widget.hpp"
+
+#include <algorithm>
+#include <cstdio>
+
+namespace switch_auto {
+
+bool WidgetRegistry::registerWidget(std::unique_ptr<Widget> widget) {
+    if (!widget) return false;
+    const auto duplicate = std::find_if(entries_.begin(), entries_.end(),
+        [&](const Entry& entry) { return entry.widget->id() == widget->id(); });
+    if (duplicate != entries_.end()) return false;
+    entries_.push_back({std::move(widget), WidgetLifecycle::Registered});
+    return true;
+}
+
+bool WidgetRegistry::initializeAll(const WidgetContext& context) {
+    for (Entry& entry : entries_) {
+        if (!entry.widget->initialize(context)) return false;
+        entry.lifecycle = WidgetLifecycle::Active;
+    }
+    return true;
+}
+
+void WidgetRegistry::updateAll(float deltaSeconds) {
+    for (Entry& entry : entries_) {
+        if (entry.lifecycle == WidgetLifecycle::Active) entry.widget->update(deltaSeconds);
+    }
+}
+
+void WidgetRegistry::renderAll(Canvas& canvas) const {
+    for (const Entry& entry : entries_) {
+        if (entry.lifecycle == WidgetLifecycle::Active) entry.widget->render(canvas);
+    }
+}
+
+void WidgetRegistry::disposeAll() {
+    for (Entry& entry : entries_) {
+        if (entry.lifecycle != WidgetLifecycle::Disposed) {
+            entry.widget->dispose();
+            entry.lifecycle = WidgetLifecycle::Disposed;
+        }
+    }
+}
+
+namespace {
+
+class RuntimeWidget : public Widget {
+public:
+    bool initialize(const WidgetContext& context) override {
+        runtime_ = &context.runtime;
+        return true;
+    }
+    void update(float) override {}
+    void dispose() override { runtime_ = nullptr; }
+
+protected:
+    const RuntimeState& state() const { return runtime_->current(); }
+    RuntimeService* runtime_ = nullptr;
+};
+
+class ClockWidget final : public RuntimeWidget {
+public:
+    std::string_view id() const override { return "core.clock"; }
+    void render(Canvas& canvas) const override {
+        char time[16];
+        std::snprintf(time, sizeof(time), "%02d:%02d", state().hour, state().minute);
+        canvas.text(1060, 34, time, 4, {238, 241, 246});
+
+        char battery[16];
+        std::snprintf(battery, sizeof(battery), "%d%%", state().batteryPercent);
+        canvas.text(1125, 92, battery, 2, {160, 170, 188});
+        canvas.strokeRect(1048, 88, 62, 28, 3, {160, 170, 188});
+        canvas.fillRect(1110, 96, 5, 12, {160, 170, 188});
+        canvas.fillRect(1054, 94, state().batteryPercent / 2, 16,
+                        state().batteryPercent > 20 ? Color{49, 209, 139} : Color{239, 83, 80});
+    }
+};
+
+class DriveWidget final : public RuntimeWidget {
+public:
+    std::string_view id() const override { return "core.drive"; }
+    void render(Canvas& canvas) const override {
+        canvas.fillRect(48, 166, 742, 482, {22, 28, 39});
+        canvas.strokeRect(48, 166, 742, 482, 2, {48, 59, 76});
+        canvas.text(82, 202, "DRIVE", 3, {102, 117, 140});
+
+        char speed[8];
+        std::snprintf(speed, sizeof(speed), "%d", state().speedKph);
+        canvas.text(102, 302, speed, 13, {238, 241, 246});
+        canvas.text(112, 410, "KM/H", 3, {102, 117, 140});
+
+        canvas.fillRect(410, 246, 2, 300, {48, 59, 76});
+        canvas.text(462, 282, "NEXT TURN", 2, {102, 117, 140});
+        canvas.text(462, 334, "ROUTE OFFLINE", 4, {238, 241, 246});
+        canvas.text(462, 408, "CONNECT ANDROID", 2, {239, 83, 80});
+    }
+};
+
+class MediaWidget final : public RuntimeWidget {
+public:
+    std::string_view id() const override { return "core.media"; }
+    void render(Canvas& canvas) const override {
+        canvas.fillRect(822, 166, 410, 482, {22, 28, 39});
+        canvas.strokeRect(822, 166, 410, 482, 2, {48, 59, 76});
+        canvas.text(856, 202, "NOW PLAYING", 3, {102, 117, 140});
+        canvas.fillRect(856, 270, 342, 150, {31, 39, 53});
+        canvas.text(886, 326, state().companionConnected ? "ANDROID" : "OFFLINE", 5,
+                    state().companionConnected ? Color{49, 209, 139} : Color{102, 117, 140});
+        canvas.text(856, 462, state().track, 3, {238, 241, 246});
+        canvas.text(856, 508, state().artist, 2, {102, 117, 140});
+        canvas.text(884, 580, "PREV", 2, {160, 170, 188});
+        canvas.text(1000, 580, "PLAY", 2, {238, 241, 246});
+        canvas.text(1110, 580, "NEXT", 2, {160, 170, 188});
+    }
+};
+
+}  // namespace
+
+std::unique_ptr<Widget> makeClockWidget() { return std::make_unique<ClockWidget>(); }
+std::unique_ptr<Widget> makeDriveWidget() { return std::make_unique<DriveWidget>(); }
+std::unique_ptr<Widget> makeMediaWidget() { return std::make_unique<MediaWidget>(); }
+
+}  // namespace switch_auto
+

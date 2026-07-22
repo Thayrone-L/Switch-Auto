@@ -252,6 +252,11 @@ A implementação terá conceitos explícitos de UI thread, tarefas em backgroun
 fila de eventos, cancelamento e timeout. O modelo concreto será definido em ADR
 antes da implementação assíncrona.
 
+O renderer inicial usa um framebuffer lógico compartilhado de `1280×720`,
+conforme o ADR 0002. Switch e simulador executam a mesma árvore de widgets e o
+mesmo código de layout; somente a apresentação do buffer é específica da
+plataforma.
+
 ## 16. Filosofia de APIs
 
 APIs devem ser pequenas, intuitivas, consistentes e previsíveis. Formas concisas
