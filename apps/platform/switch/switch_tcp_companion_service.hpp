@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <optional>
@@ -24,12 +25,15 @@ public:
     void disconnect() override;
     CompanionStatus status() const override;
     std::optional<CompanionPairingInfo> pairingInfo() const override;
+    bool hasTrustedCompanion() const override { return hasTrustedCompanion_; }
 
 private:
-    void run(CompanionEndpoint endpoint, std::string pairingCode);
-    void runDiscovery();
+    void runAutomatic();
+    void runManual(CompanionEndpoint endpoint, std::string pairingToken);
+    CompanionError runSession(const CompanionEndpoint& endpoint,
+        const std::string& pairingToken);
     void publish(const CompanionStatus& status);
-    bool waitForRetry();
+    bool waitForRetry(std::chrono::seconds delay);
 
     mutable std::mutex statusMutex_;
     CompanionStatus status_;
@@ -38,6 +42,7 @@ private:
     std::mutex waitMutex_;
     std::condition_variable waitCondition_;
     std::optional<SwitchDeviceIdentity> identity_;
+    std::atomic<bool> hasTrustedCompanion_{false};
 };
 
 }  // namespace switch_auto::platform::switch_platform

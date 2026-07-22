@@ -19,7 +19,8 @@ std::string statusText(const CompanionStatus& status) {
         case CompanionConnectionState::Online:
             return "switch_auto/status/connected"_i18n;
         case CompanionConnectionState::Reconnecting:
-            return "switch_auto/status/reconnecting"_i18n;
+            return brls::getStr("switch_auto/status/retrying",
+                status.retryDelaySeconds, status.retryAttempt);
         case CompanionConnectionState::Failed:
             if (status.lastError == CompanionError::DiscoveryTimeout) {
                 return "switch_auto/connection/not_found"_i18n;

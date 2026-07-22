@@ -50,6 +50,9 @@ struct CompanionStatus {
     std::optional<std::string> sessionToken;
     std::uint32_t lastSequence = 0;
     std::optional<int> remoteBatteryPercent;
+    std::string endpointAddress;
+    std::uint32_t retryAttempt = 0;
+    std::uint32_t retryDelaySeconds = 0;
 };
 
 struct CompanionPairingInfo {
@@ -69,6 +72,7 @@ public:
     virtual void disconnect() = 0;
     virtual CompanionStatus status() const = 0;
     virtual std::optional<CompanionPairingInfo> pairingInfo() const = 0;
+    virtual bool hasTrustedCompanion() const = 0;
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,

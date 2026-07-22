@@ -58,7 +58,14 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
         refreshConnectionDetails()
-        appendLog("Ready. Start the server, then connect the Switch.")
+        val hasTrustedSwitch = getPreferences(MODE_PRIVATE).all.keys
+            .any { it.startsWith("pairedToken.") }
+        if (hasTrustedSwitch) {
+            appendLog("Trusted Switch found; starting Companion automatically")
+            startServer()
+        } else {
+            appendLog("No trusted Switch yet; scan the QR to pair")
+        }
     }
 
     override fun onDestroy() {
@@ -129,7 +136,7 @@ class MainActivity : Activity() {
                     serverSocket = server
                     runOnUiThread {
                         statusView.text = "Listening on port $SERVER_PORT"
-                        appendLog("Server started with a new pairing code.")
+                        appendLog("Companion server ready")
                     }
                     while (running.get()) {
                         val client = server.accept()

@@ -1,9 +1,11 @@
 #include "switch_tcp_companion_service.hpp"
 
 #include <arpa/inet.h>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <cstdio>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -17,9 +19,12 @@ constexpr int kSocketTimeoutSeconds = 10;
 constexpr std::uint16_t kDiscoveryPort = 38472;
 constexpr int kDiscoveryAttempts = 4;
 constexpr int kDiscoveryTimeoutSeconds = 1;
-constexpr auto kReconnectDelay = std::chrono::seconds(3);
+constexpr auto kMinimumReconnectDelay = std::chrono::seconds(1);
+constexpr auto kMaximumReconnectDelay = std::chrono::seconds(16);
 constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
 constexpr std::size_t kMaximumMessageSize = 4096;
+constexpr const char* kTrustedCompanionPath =
+    "sdmc:/switch/switch-auto/identity/companion.trusted";
 
 bool sendAll(int socketFd, std::string_view payload) {
     while (!payload.empty()) {
@@ -145,11 +150,18 @@ SwitchTcpCompanionService::SwitchTcpCompanionService() {
     auto identity = SwitchDeviceIdentity::loadOrCreate();
     if (identity) {
         identity_ = std::move(identity.value());
+        if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "rb")) {
+            hasTrustedCompanion_ = true;
+            std::fclose(trusted);
+        }
         brls::Logger::info("Companion identity ready: deviceId={}",
             identity_->pairingInfo().deviceId);
     } else {
         brls::Logger::error("Companion identity failed: {}", toString(identity.error()));
-        publish({CompanionConnectionState::Failed, identity.error()});
+        CompanionStatus failed;
+        failed.state = CompanionConnectionState::Failed;
+        failed.lastError = identity.error();
+        publish(failed);
     }
 }
 
@@ -164,8 +176,10 @@ Result<void, CompanionError> SwitchTcpCompanionService::startAutomaticPairing() 
     disconnect();
     brls::Logger::info("Companion pairing: automatic discovery requested");
     stopRequested_ = false;
-    publish({CompanionConnectionState::Discovering, CompanionError::None});
-    worker_ = std::thread(&SwitchTcpCompanionService::runDiscovery, this);
+    CompanionStatus discovering;
+    discovering.state = CompanionConnectionState::Discovering;
+    publish(discovering);
+    worker_ = std::thread(&SwitchTcpCompanionService::runAutomatic, this);
     return Result<void, CompanionError>::success();
 }
 
@@ -183,9 +197,12 @@ Result<void, CompanionError> SwitchTcpCompanionService::connect(
 
     disconnect();
     stopRequested_ = false;
-    publish({CompanionConnectionState::Connecting, CompanionError::None});
-    worker_ = std::thread(
-        &SwitchTcpCompanionService::run, this, endpoint, std::string(pairingCode));
+    CompanionStatus connecting;
+    connecting.state = CompanionConnectionState::Connecting;
+    connecting.endpointAddress = endpoint.address;
+    publish(connecting);
+    worker_ = std::thread(&SwitchTcpCompanionService::runManual, this, endpoint,
+        std::string(pairingCode));
     return Result<void, CompanionError>::success();
 }
 
@@ -207,45 +224,85 @@ std::optional<CompanionPairingInfo> SwitchTcpCompanionService::pairingInfo() con
     return identity_->pairingInfo();
 }
 
-void SwitchTcpCompanionService::runDiscovery() {
+void SwitchTcpCompanionService::runAutomatic() {
     const CompanionPairingInfo info = identity_->pairingInfo();
-    const auto endpoint = discoverCompanion(info, stopRequested_);
-    if (stopRequested_) return;
-    if (!endpoint) {
-        brls::Logger::error("Companion discovery: timed out after {} attempts",
-            kDiscoveryAttempts);
-        publish({CompanionConnectionState::Failed, CompanionError::DiscoveryTimeout});
-        return;
+    auto delay = kMinimumReconnectDelay;
+    std::uint32_t retryAttempt = 0;
+    while (!stopRequested_) {
+        CompanionStatus discovering;
+        discovering.state = CompanionConnectionState::Discovering;
+        discovering.retryAttempt = retryAttempt;
+        publish(discovering);
+        const auto endpoint = discoverCompanion(info, stopRequested_);
+        if (stopRequested_) return;
+
+        CompanionError failure = CompanionError::DiscoveryTimeout;
+        if (endpoint) {
+            failure = runSession(*endpoint, info.pairingToken);
+            if (stopRequested_) return;
+            if (permanentProtocolError(failure)) {
+                CompanionStatus failed;
+                failed.state = CompanionConnectionState::Failed;
+                failed.lastError = failure;
+                failed.endpointAddress = endpoint->address;
+                publish(failed);
+                return;
+            }
+            delay = kMinimumReconnectDelay;
+        } else {
+            brls::Logger::error("Companion discovery: timed out after {} attempts",
+                kDiscoveryAttempts);
+        }
+
+        ++retryAttempt;
+        CompanionStatus reconnecting;
+        reconnecting.state = CompanionConnectionState::Reconnecting;
+        reconnecting.lastError = failure;
+        reconnecting.retryAttempt = retryAttempt;
+        reconnecting.retryDelaySeconds = static_cast<std::uint32_t>(delay.count());
+        publish(reconnecting);
+        brls::Logger::info("Companion reconnect: attempt={} delay={}s reason={}",
+            retryAttempt, delay.count(), toString(failure));
+        if (!waitForRetry(delay)) return;
+        delay = std::min(delay * 2, kMaximumReconnectDelay);
     }
-    run(*endpoint, info.pairingToken);
 }
 
-void SwitchTcpCompanionService::run(
-    CompanionEndpoint endpoint, std::string pairingCode) {
+void SwitchTcpCompanionService::runManual(
+    CompanionEndpoint endpoint, std::string pairingToken) {
+    auto delay = kMinimumReconnectDelay;
     while (!stopRequested_) {
-        CompanionSession session;
-        session.transportConnected();
-        publish(session.status());
+        const CompanionError failure = runSession(endpoint, pairingToken);
+        if (stopRequested_ || permanentProtocolError(failure)) return;
+        if (!waitForRetry(delay)) return;
+        delay = std::min(delay * 2, kMaximumReconnectDelay);
+    }
+}
 
-        const int socketFd = openSocket(endpoint);
-        if (socketFd < 0) {
-            brls::Logger::error("Companion TCP: connection to {}:{} failed errno={}",
-                endpoint.address, endpoint.port, errno);
-            session.transportDisconnected(CompanionError::TransportUnavailable);
-            publish(session.status());
-            if (!waitForRetry()) break;
-            continue;
-        }
-        brls::Logger::info("Companion TCP: connected to {}:{}", endpoint.address,
-            endpoint.port);
+CompanionError SwitchTcpCompanionService::runSession(
+    const CompanionEndpoint& endpoint, const std::string& pairingToken) {
+    CompanionSession session;
+    session.transportConnected();
+    CompanionStatus connecting = session.status();
+    connecting.endpointAddress = endpoint.address;
+    publish(connecting);
 
-        CompanionError failure = CompanionError::None;
-        const auto pairRequest = session.begin(
-            pairingCode, identity_ ? identity_->pairingInfo().deviceId : "");
-        publish(session.status());
-        std::string response;
+    const int socketFd = openSocket(endpoint);
+    if (socketFd < 0) {
+        brls::Logger::error("Companion TCP: connection to {}:{} failed errno={}",
+            endpoint.address, endpoint.port, errno);
+        return CompanionError::TransportUnavailable;
+    }
+    brls::Logger::info("Companion TCP: connected to {}:{}", endpoint.address,
+        endpoint.port);
 
-        if (!pairRequest || !sendAll(socketFd, pairRequest.value()) ||
+    CompanionError failure = CompanionError::None;
+    const auto pairRequest = session.begin(
+        pairingToken, identity_ ? identity_->pairingInfo().deviceId : "");
+    publish(session.status());
+    std::string response;
+
+    if (!pairRequest || !sendAll(socketFd, pairRequest.value()) ||
             !receiveLine(socketFd, response)) {
             failure = pairRequest ? CompanionError::ConnectionClosed : pairRequest.error();
         } else {
@@ -263,11 +320,18 @@ void SwitchTcpCompanionService::run(
                 const auto helloResponse = session.receive(response);
                 publish(session.status());
                 if (!helloResponse) failure = helloResponse.error();
-                else brls::Logger::info("Companion protocol: session online");
+                else {
+                    brls::Logger::info("Companion protocol: session online");
+                    hasTrustedCompanion_ = true;
+                    if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "wb")) {
+                        std::fputs("1\n", trusted);
+                        std::fclose(trusted);
+                    }
+                }
             }
         }
 
-        while (failure == CompanionError::None && !stopRequested_) {
+    while (failure == CompanionError::None && !stopRequested_) {
             std::unique_lock<std::mutex> lock(waitMutex_);
             if (waitCondition_.wait_for(lock, kHeartbeatInterval,
                     [this] { return stopRequested_.load(); })) break;
@@ -289,22 +353,14 @@ void SwitchTcpCompanionService::run(
             if (!pong) failure = pong.error();
         }
 
-        ::shutdown(socketFd, SHUT_RDWR);
-        ::close(socketFd);
-        if (stopRequested_) break;
-        if (failure != CompanionError::None && permanentProtocolError(failure)) {
-            brls::Logger::error("Companion protocol: permanent failure {}",
-                toString(failure));
-            publish(session.status());
-            break;
-        }
-        session.transportDisconnected(
-            failure == CompanionError::None ? CompanionError::ConnectionClosed : failure);
-        brls::Logger::error("Companion transport: session ended ({})",
-            toString(session.status().lastError));
-        publish(session.status());
-        if (!waitForRetry()) break;
-    }
+    ::shutdown(socketFd, SHUT_RDWR);
+    ::close(socketFd);
+    if (stopRequested_) return CompanionError::None;
+    if (failure == CompanionError::None) failure = CompanionError::ConnectionClosed;
+    session.transportDisconnected(failure);
+    brls::Logger::error("Companion transport: session ended ({})", toString(failure));
+    publish(session.status());
+    return failure;
 }
 
 void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
@@ -312,9 +368,9 @@ void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
     status_ = status;
 }
 
-bool SwitchTcpCompanionService::waitForRetry() {
+bool SwitchTcpCompanionService::waitForRetry(std::chrono::seconds delay) {
     std::unique_lock<std::mutex> lock(waitMutex_);
-    return !waitCondition_.wait_for(lock, kReconnectDelay,
+    return !waitCondition_.wait_for(lock, delay,
         [this] { return stopRequested_.load(); });
 }
 

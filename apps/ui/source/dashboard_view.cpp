@@ -76,8 +76,9 @@ void DashboardView::refresh() {
     CompanionConnectionState connectionState = CompanionConnectionState::Disconnected;
     if (companion_) {
         companion_->update();
-        connectionState = companion_->status().state;
-        const auto remoteBattery = companion_->status().remoteBatteryPercent;
+        const CompanionStatus companionStatus = companion_->status();
+        connectionState = companionStatus.state;
+        const auto remoteBattery = companionStatus.remoteBatteryPercent;
         mutableState.companionBatteryPercent = remoteBattery.value_or(-1);
         mutableState.companionConnected =
             connectionState == CompanionConnectionState::Online;
@@ -117,7 +118,11 @@ void DashboardView::refresh() {
             connectionLabel_->setText("switch_auto/status/connected"_i18n);
             break;
         case CompanionConnectionState::Reconnecting:
-            connectionLabel_->setText("switch_auto/status/reconnecting"_i18n);
+            if (companion_) {
+                const CompanionStatus retry = companion_->status();
+                connectionLabel_->setText(brls::getStr("switch_auto/status/retrying",
+                    retry.retryDelaySeconds, retry.retryAttempt));
+            }
             break;
         case CompanionConnectionState::Failed:
             connectionLabel_->setText("switch_auto/status/failed"_i18n);

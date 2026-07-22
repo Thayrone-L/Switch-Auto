@@ -30,8 +30,10 @@ dependências de socket ou plataforma. O transporte específico do Switch deve
 implementar `CompanionService` e alimentar a sessão com mensagens completas.
 
 A implementação atual do Switch usa uma thread de background, timeout de 10
-segundos, heartbeat a cada 5 segundos e nova tentativa após 3 segundos. Nenhuma
-operação de rede bloqueia a thread da interface Borealis.
+segundos e heartbeat a cada 5 segundos. Após uma queda, volta à descoberta para
+aceitar mudanças de IP e usa backoff de 1, 2, 4, 8 e no máximo 16 segundos.
+Todas as esperas são canceláveis e nenhuma operação de rede bloqueia a thread da
+interface Borealis.
 
 Exemplos concretos estão em [`examples/`](examples/). O Companion persiste a
 associação entre `deviceId` e token depois da leitura do QR. Credenciais e tokens

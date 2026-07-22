@@ -13,6 +13,7 @@
         "pairing": "PAIRING...",
         "handshaking": "STARTING SESSION...",
         "reconnecting": "RECONNECTING...",
+        "retrying": "RETRYING IN {}s · ATTEMPT {}",
         "failed": "CONNECTION FAILED"
     },
     "connection": {

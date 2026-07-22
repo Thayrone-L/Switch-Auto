@@ -59,6 +59,7 @@ public:
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
             "switchauto://pair?v=1&id=SIMULATOR&token=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"};
     }
+    bool hasTrustedCompanion() const override { return true; }
 
 private:
     switch_auto::CompanionStatus status_;
@@ -127,9 +128,14 @@ int main(int argc, char** argv) {
     brls::Application::pushActivity(new MainActivity());
     brls::Logger::info("Switch Auto stage: dashboard-pushed");
     switch_auto::CompanionService* initialCompanion = companion.get();
+    if (initialCompanion && initialCompanion->hasTrustedCompanion()) {
+        brls::Logger::info("Switch Auto startup: trusted Companion found, auto-connecting");
+        initialCompanion->startAutomaticPairing();
+    }
     brls::sync([initialCompanion]() {
         brls::Logger::info("Switch Auto stage: deferred-connection-check");
-        if (initialCompanion && initialCompanion->status().state ==
+        if (initialCompanion && !initialCompanion->hasTrustedCompanion() &&
+                initialCompanion->status().state ==
                 switch_auto::CompanionConnectionState::Disconnected) {
             switch_auto::ui::openConnectionScreen(initialCompanion);
         }
