@@ -93,19 +93,24 @@ int main(int argc, char** argv) {
     switch_auto::ui::DashboardView::setCompanionService(companion.get());
 
     brls::Application::createWindow("Switch Auto");
+    brls::Logger::info("Switch Auto stage: window-created");
     brls::Application::getPlatform()->setThemeVariant(brls::ThemeVariant::DARK);
     brls::Application::setGlobalQuit(true);
     brls::Application::registerXMLView(
         "DashboardView", switch_auto::ui::DashboardView::create);
+    brls::Logger::info("Switch Auto stage: dashboard-registered");
     brls::Application::pushActivity(new MainActivity());
+    brls::Logger::info("Switch Auto stage: dashboard-pushed");
     switch_auto::CompanionService* initialCompanion = companion.get();
     brls::sync([initialCompanion]() {
+        brls::Logger::info("Switch Auto stage: deferred-connection-check");
         if (initialCompanion && initialCompanion->status().state ==
                 switch_auto::CompanionConnectionState::Disconnected) {
             switch_auto::ui::openConnectionScreen(initialCompanion);
         }
     });
 
+    brls::Logger::info("Switch Auto stage: entering-main-loop");
     while (brls::Application::mainLoop()) {
     }
 #ifdef __SWITCH__

@@ -30,7 +30,9 @@ std::string statusText(const CompanionStatus& status) {
 }  // namespace
 
 ConnectionView::ConnectionView(CompanionService& companion) : companion_(companion) {
+    brls::Logger::info("Connection screen stage: inflating-xml");
     inflateFromXMLRes("xml/views/connection.xml");
+    brls::Logger::info("Connection screen stage: xml-ready");
     ipInput_->init(
         "switch_auto/connection/ip_label"_i18n, "", {},
         "switch_auto/connection/ip_placeholder"_i18n,
@@ -52,6 +54,7 @@ ConnectionView::ConnectionView(CompanionService& companion) : companion_(compani
     statusTimer_.setCallback([this]() { refreshStatus(); });
     statusTimer_.start(250);
     refreshStatus();
+    brls::Logger::info("Connection screen stage: initialized");
 }
 
 ConnectionView::~ConnectionView() {
@@ -90,9 +93,15 @@ void ConnectionView::close() {
 }
 
 void openConnectionScreen(CompanionService* companion) {
-    if (!companion) return;
-    brls::Application::pushActivity(
-        new brls::Activity(new ConnectionView(*companion)));
+    if (!companion) {
+        brls::Logger::error("Connection screen requested without CompanionService");
+        return;
+    }
+    brls::Logger::info("Connection screen stage: constructing");
+    auto* view = new ConnectionView(*companion);
+    brls::Logger::info("Connection screen stage: pushing-activity");
+    brls::Application::pushActivity(new brls::Activity(view));
+    brls::Logger::info("Connection screen stage: activity-pushed");
 }
 
 }  // namespace switch_auto::ui
