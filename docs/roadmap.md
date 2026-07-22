@@ -15,6 +15,10 @@
 
 ## Marco 1 — Conexão
 
+- [x] `ServiceRegistry` tipado e estados separados;
+- [x] lifecycle de widgets com ativação, suspensão e retomada;
+- [x] fila de eventos do Core;
+- [x] widget de bateria bilateral Switch ↔ Android;
 - carregar tema padrão e traduções `en-US`/`pt-BR`;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;

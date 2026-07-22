@@ -33,7 +33,7 @@ void updateRuntime(MutableRuntimeService& runtime) {
 #ifdef __SWITCH__
     u32 battery = 0;
     if (R_SUCCEEDED(psmGetBatteryChargePercentage(&battery))) {
-        state.batteryPercent = static_cast<int>(battery);
+        state.switchBatteryPercent = static_cast<int>(battery);
     }
     state.speedKph = 0;
 #endif
@@ -77,6 +77,8 @@ void DashboardView::refresh() {
     if (companion_) {
         companion_->update();
         connectionState = companion_->status().state;
+        const auto remoteBattery = companion_->status().remoteBatteryPercent;
+        mutableState.companionBatteryPercent = remoteBattery.value_or(-1);
         mutableState.companionConnected =
             connectionState == CompanionConnectionState::Online;
     }
@@ -86,7 +88,13 @@ void DashboardView::refresh() {
     std::snprintf(buffer, sizeof(buffer), "%02d:%02d", state.hour, state.minute);
     clockLabel_->setText(buffer);
 
-    std::snprintf(buffer, sizeof(buffer), "%d%%", state.batteryPercent);
+    char phoneBattery[16] = "--";
+    if (state.companionBatteryPercent >= 0) {
+        std::snprintf(phoneBattery, sizeof(phoneBattery), "%d%%",
+            state.companionBatteryPercent);
+    }
+    std::snprintf(buffer, sizeof(buffer), "SW %d%%  |  PHONE %s",
+        state.switchBatteryPercent, phoneBattery);
     batteryLabel_->setText(buffer);
 
     std::snprintf(buffer, sizeof(buffer), "%d", state.speedKph);

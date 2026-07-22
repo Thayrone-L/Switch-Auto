@@ -49,6 +49,7 @@ struct CompanionStatus {
     CompanionError lastError = CompanionError::None;
     std::optional<std::string> sessionToken;
     std::uint32_t lastSequence = 0;
+    std::optional<int> remoteBatteryPercent;
 };
 
 struct CompanionPairingInfo {
@@ -77,7 +78,7 @@ public:
     Result<std::string, CompanionError> begin(
         std::string_view pairingCode, std::string_view deviceId = {});
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
-    Result<std::string, CompanionError> heartbeat();
+    Result<std::string, CompanionError> heartbeat(std::optional<int> localBatteryPercent = std::nullopt);
     void transportConnected();
     void transportDisconnected(CompanionError reason);
     void reset();

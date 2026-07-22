@@ -8,10 +8,31 @@ struct RuntimeState {
     int hour = 18;
     int minute = 42;
     int speedKph = 72;
-    int batteryPercent = 82;
+    int switchBatteryPercent = 82;
+    int companionBatteryPercent = -1;
     bool companionConnected = false;
     std::string track = "NO MEDIA";
     std::string artist = "ANDROID COMPANION OFFLINE";
+};
+
+struct AppState {
+    bool initialized = false;
+    bool foreground = true;
+};
+
+struct WidgetState {
+    bool visible = true;
+    bool enabled = true;
+};
+
+struct PersistentSettings {
+    int schemaVersion = 1;
+    std::string locale = "en-US";
+    std::string theme = "default";
+};
+
+struct RuntimeCache {
+    RuntimeState runtime;
 };
 
 class RuntimeService {
@@ -30,4 +51,3 @@ private:
 };
 
 }  // namespace switch_auto
-

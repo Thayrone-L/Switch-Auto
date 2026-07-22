@@ -1,7 +1,10 @@
 package dev.switchauto.companion
 
 import android.app.Activity
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
+import android.os.BatteryManager
 import android.os.Bundle
 import android.net.Uri
 import android.text.method.ScrollingMovementMethod
@@ -209,8 +212,16 @@ class MainActivity : Activity() {
                             send(writer, message("error").put("code", "not_paired"))
                         }
                         "ping" -> if (paired) {
+                            val switchBattery = request.optInt("switchBatteryPercent", -1)
+                            if (switchBattery in 0..100) {
+                                runOnUiThread {
+                                    statusView.text =
+                                        "Connected — Phone ${phoneBatteryPercent()}% | Switch $switchBattery%"
+                                }
+                            }
                             send(writer, message("pong")
-                                .put("sequence", request.optInt("sequence")))
+                                .put("sequence", request.optInt("sequence"))
+                                .put("phoneBatteryPercent", phoneBatteryPercent()))
                         } else {
                             send(writer, message("error").put("code", "not_paired"))
                         }
@@ -340,6 +351,16 @@ class MainActivity : Activity() {
     private fun refreshConnectionDetails() {
         if (!::addressView.isInitialized) return
         addressView.text = "IP: ${findIpv4Address() ?: "unavailable"}   Port: $SERVER_PORT"
+    }
+
+    private fun phoneBatteryPercent(): Int {
+        val manager = getSystemService(BATTERY_SERVICE) as BatteryManager
+        val capacity = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        if (capacity in 0..100) return capacity
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        return if (level >= 0 && scale > 0) level * 100 / scale else 0
     }
 
     private fun findIpv4Address(): String? = try {

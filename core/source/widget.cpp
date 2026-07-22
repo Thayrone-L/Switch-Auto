@@ -17,9 +17,35 @@ bool WidgetRegistry::registerWidget(std::unique_ptr<Widget> widget) {
 bool WidgetRegistry::initializeAll(const WidgetContext& context) {
     for (Entry& entry : entries_) {
         if (!entry.widget->initialize(context)) return false;
+        entry.lifecycle = WidgetLifecycle::Initialized;
+        if (!entry.widget->activate()) return false;
         entry.lifecycle = WidgetLifecycle::Active;
     }
     return true;
+}
+
+bool WidgetRegistry::suspend(std::string_view id) {
+    const auto entry = std::find_if(entries_.begin(), entries_.end(),
+        [id](const Entry& value) { return value.widget->id() == id; });
+    if (entry == entries_.end() || entry->lifecycle != WidgetLifecycle::Active) return false;
+    entry->widget->suspend();
+    entry->lifecycle = WidgetLifecycle::Suspended;
+    return true;
+}
+
+bool WidgetRegistry::resume(std::string_view id) {
+    const auto entry = std::find_if(entries_.begin(), entries_.end(),
+        [id](const Entry& value) { return value.widget->id() == id; });
+    if (entry == entries_.end() || entry->lifecycle != WidgetLifecycle::Suspended) return false;
+    entry->widget->resume();
+    entry->lifecycle = WidgetLifecycle::Active;
+    return true;
+}
+
+WidgetLifecycle WidgetRegistry::lifecycle(std::string_view id) const {
+    const auto entry = std::find_if(entries_.begin(), entries_.end(),
+        [id](const Entry& value) { return value.widget->id() == id; });
+    return entry == entries_.end() ? WidgetLifecycle::Disposed : entry->lifecycle;
 }
 
 void WidgetRegistry::updateAll(float deltaSeconds) {
@@ -67,13 +93,30 @@ public:
         std::snprintf(time, sizeof(time), "%02d:%02d", state().hour, state().minute);
         canvas.text(1060, 34, time, 4, {238, 241, 246});
 
-        char battery[16];
-        std::snprintf(battery, sizeof(battery), "%d%%", state().batteryPercent);
-        canvas.text(1125, 92, battery, 2, {160, 170, 188});
+    }
+};
+
+class BatteryWidget final : public RuntimeWidget {
+public:
+    std::string_view id() const override { return "core.battery"; }
+    void render(Canvas& canvas) const override {
+        char switchBattery[16];
+        std::snprintf(switchBattery, sizeof(switchBattery), "SW %d%%",
+            state().switchBatteryPercent);
+        canvas.text(1030, 92, switchBattery, 2, {160, 170, 188});
         canvas.strokeRect(1048, 88, 62, 28, 3, {160, 170, 188});
         canvas.fillRect(1110, 96, 5, 12, {160, 170, 188});
-        canvas.fillRect(1054, 94, state().batteryPercent / 2, 16,
-                        state().batteryPercent > 20 ? Color{49, 209, 139} : Color{239, 83, 80});
+        canvas.fillRect(1054, 94, state().switchBatteryPercent / 2, 16,
+                        state().switchBatteryPercent > 20 ? Color{49, 209, 139} : Color{239, 83, 80});
+        char phoneBattery[24];
+        if (state().companionBatteryPercent >= 0) {
+            std::snprintf(phoneBattery, sizeof(phoneBattery), "PHONE %d%%",
+                state().companionBatteryPercent);
+        } else {
+            std::snprintf(phoneBattery, sizeof(phoneBattery), "PHONE --");
+        }
+        canvas.text(850, 92, phoneBattery, 2,
+            state().companionBatteryPercent >= 0 ? Color{49, 209, 139} : Color{102, 117, 140});
     }
 };
 
@@ -118,8 +161,8 @@ public:
 }  // namespace
 
 std::unique_ptr<Widget> makeClockWidget() { return std::make_unique<ClockWidget>(); }
+std::unique_ptr<Widget> makeBatteryWidget() { return std::make_unique<BatteryWidget>(); }
 std::unique_ptr<Widget> makeDriveWidget() { return std::make_unique<DriveWidget>(); }
 std::unique_ptr<Widget> makeMediaWidget() { return std::make_unique<MediaWidget>(); }
 
 }  // namespace switch_auto
-

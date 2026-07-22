@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "type": "ping",
+  "sequence": 1,
+  "switchBatteryPercent": 64
+}

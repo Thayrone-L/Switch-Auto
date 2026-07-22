@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <borealis.hpp>
+#include <switch.h>
 
 namespace switch_auto::platform::switch_platform {
 namespace {
@@ -272,7 +273,12 @@ void SwitchTcpCompanionService::run(
                     [this] { return stopRequested_.load(); })) break;
             lock.unlock();
 
-            const auto ping = session.heartbeat();
+            u32 batteryPercent = 0;
+            const std::optional<int> localBattery =
+                R_SUCCEEDED(psmGetBatteryChargePercentage(&batteryPercent))
+                ? std::optional<int>(static_cast<int>(batteryPercent))
+                : std::nullopt;
+            const auto ping = session.heartbeat(localBattery);
             if (!ping || !sendAll(socketFd, ping.value()) ||
                 !receiveLine(socketFd, response)) {
                 failure = CompanionError::ConnectionClosed;

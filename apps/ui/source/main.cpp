@@ -42,10 +42,12 @@ public:
         }
         status_.state = switch_auto::CompanionConnectionState::Online;
         status_.lastError = switch_auto::CompanionError::None;
+        status_.remoteBatteryPercent = 76;
         return switch_auto::Result<void, switch_auto::CompanionError>::success();
     }
     switch_auto::Result<void, switch_auto::CompanionError> startAutomaticPairing() override {
         status_.state = switch_auto::CompanionConnectionState::Online;
+        status_.remoteBatteryPercent = 76;
         return switch_auto::Result<void, switch_auto::CompanionError>::success();
     }
     void update() override {}

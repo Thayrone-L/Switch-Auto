@@ -7,6 +7,7 @@
 
 #include "switch_auto/canvas.hpp"
 #include "switch_auto/services.hpp"
+#include "switch_auto/service_registry.hpp"
 
 namespace switch_auto {
 
@@ -20,6 +21,7 @@ enum class WidgetLifecycle {
 
 struct WidgetContext {
     RuntimeService& runtime;
+    ServiceRegistry& services;
 };
 
 class Widget {
@@ -27,8 +29,11 @@ public:
     virtual ~Widget() = default;
     virtual std::string_view id() const = 0;
     virtual bool initialize(const WidgetContext& context) = 0;
+    virtual bool activate() { return true; }
     virtual void update(float deltaSeconds) = 0;
     virtual void render(Canvas& canvas) const = 0;
+    virtual void suspend() {}
+    virtual void resume() {}
     virtual void dispose() = 0;
 };
 
@@ -38,6 +43,9 @@ public:
     bool initializeAll(const WidgetContext& context);
     void updateAll(float deltaSeconds);
     void renderAll(Canvas& canvas) const;
+    bool suspend(std::string_view id);
+    bool resume(std::string_view id);
+    WidgetLifecycle lifecycle(std::string_view id) const;
     void disposeAll();
     std::size_t size() const { return entries_.size(); }
 
@@ -51,8 +59,8 @@ private:
 };
 
 std::unique_ptr<Widget> makeClockWidget();
+std::unique_ptr<Widget> makeBatteryWidget();
 std::unique_ptr<Widget> makeDriveWidget();
 std::unique_ptr<Widget> makeMediaWidget();
 
 }  // namespace switch_auto
-

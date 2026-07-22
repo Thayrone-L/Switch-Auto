@@ -109,6 +109,10 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
             return fail(CompanionError::HeartbeatMismatch);
         }
         status_.lastSequence = *sequence;
+        const auto remoteBattery = unsignedField(line, "phoneBatteryPercent");
+        if (remoteBattery && *remoteBattery <= 100) {
+            status_.remoteBatteryPercent = static_cast<int>(*remoteBattery);
+        }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
     }
@@ -116,13 +120,19 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
     return fail(CompanionError::UnexpectedMessage);
 }
 
-Result<std::string, CompanionError> CompanionSession::heartbeat() {
+Result<std::string, CompanionError> CompanionSession::heartbeat(
+    std::optional<int> localBatteryPercent) {
     if (status_.state != CompanionConnectionState::Online || pendingSequence_) {
         return Result<std::string, CompanionError>::failure(CompanionError::NotOnline);
     }
     pendingSequence_ = nextSequence_++;
+    const std::string batteryField = localBatteryPercent && *localBatteryPercent >= 0 &&
+            *localBatteryPercent <= 100
+        ? ",\"switchBatteryPercent\":" + std::to_string(*localBatteryPercent)
+        : "";
     return Result<std::string, CompanionError>::success(envelope(
-        "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_)));
+        "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_) +
+        batteryField));
 }
 
 void CompanionSession::transportDisconnected(CompanionError reason) {

@@ -13,6 +13,7 @@ Formato do protótipo de handshake:
 - bootstrap por QR contendo `deviceId` e token aleatório de 256 bits;
 - o Android persiste o token e só responde ao Switch previamente lido;
 - heartbeat por mensagens `ping` e `pong`.
+- telemetria bilateral de bateria embutida no heartbeat.
 
 Fluxo implementado:
 
@@ -20,6 +21,9 @@ Fluxo implementado:
 discover.request → discover.reply → TCP
 pair.request → pair.accepted → hello → hello.ack → ping ⇄ pong
 ```
+
+O `ping` enviado pelo Switch inclui `switchBatteryPercent`; o `pong` devolvido
+pelo Companion inclui `phoneBatteryPercent`. Ambos são inteiros entre 0 e 100.
 
 O Core representa esse fluxo em `CompanionSession`, uma máquina de estados sem
 dependências de socket ou plataforma. O transporte específico do Switch deve

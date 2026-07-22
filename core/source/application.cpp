@@ -7,24 +7,33 @@ Application::Application(RuntimeService& runtime) : runtime_(runtime) {}
 bool Application::initialize() {
     if (lifecycle_ != ApplicationLifecycle::Created) return false;
     lifecycle_ = ApplicationLifecycle::InitializingServices;
+    if (!services_.registerService<RuntimeService>(runtime_)) {
+        lifecycle_ = ApplicationLifecycle::Failed;
+        return false;
+    }
     lifecycle_ = ApplicationLifecycle::RegisteringWidgets;
     if (!registry_.registerWidget(makeClockWidget()) ||
+        !registry_.registerWidget(makeBatteryWidget()) ||
         !registry_.registerWidget(makeDriveWidget()) ||
         !registry_.registerWidget(makeMediaWidget())) {
         lifecycle_ = ApplicationLifecycle::Failed;
         return false;
     }
-    if (!registry_.initializeAll({runtime_})) {
+    if (!registry_.initializeAll({runtime_, services_})) {
         lifecycle_ = ApplicationLifecycle::Failed;
         return false;
     }
     lifecycle_ = ApplicationLifecycle::StartingUi;
     lifecycle_ = ApplicationLifecycle::Running;
+    appState_.initialized = true;
     return true;
 }
 
 void Application::update(float deltaSeconds) {
-    if (lifecycle_ == ApplicationLifecycle::Running) registry_.updateAll(deltaSeconds);
+    if (lifecycle_ == ApplicationLifecycle::Running) {
+        events_.drain();
+        registry_.updateAll(deltaSeconds);
+    }
 }
 
 void Application::render(Canvas& canvas) const {
@@ -40,8 +49,8 @@ void Application::shutdown() {
     if (lifecycle_ == ApplicationLifecycle::Stopped) return;
     lifecycle_ = ApplicationLifecycle::ShuttingDown;
     registry_.disposeAll();
+    appState_.initialized = false;
     lifecycle_ = ApplicationLifecycle::Stopped;
 }
 
 }  // namespace switch_auto
-

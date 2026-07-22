@@ -1,6 +1,8 @@
 #pragma once
 
 #include "switch_auto/widget.hpp"
+#include "switch_auto/service_registry.hpp"
+#include "switch_auto/event_queue.hpp"
 
 namespace switch_auto {
 
@@ -29,8 +31,10 @@ public:
 private:
     RuntimeService& runtime_;
     WidgetRegistry registry_;
+    ServiceRegistry services_;
+    AppState appState_;
+    EventQueue events_;
     ApplicationLifecycle lifecycle_ = ApplicationLifecycle::Created;
 };
 
 }  // namespace switch_auto
-
