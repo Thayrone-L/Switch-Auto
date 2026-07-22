@@ -6,6 +6,7 @@
 #include "switch_auto/application.hpp"
 #include "switch_auto/companion.hpp"
 #include "switch_auto/event_queue.hpp"
+#include "switch_auto/crypto.hpp"
 #include "switch_auto/service_registry.hpp"
 #include "switch_auto/widget.hpp"
 
@@ -13,25 +14,60 @@ int main() {
     using namespace switch_auto;
 
     CompanionSession session;
-    const auto invalidPairing = session.begin("123");
+    const auto invalidPairing = session.begin("123", "TEST", "0123456789abcdef0123456789abcdef");
     assert(!invalidPairing);
     assert(invalidPairing.error() == CompanionError::InvalidPairingCode);
 
     session.transportConnected();
-    const auto pairRequest = session.begin("679922");
+    const std::string pairingToken =
+        "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+    const std::string clientNonce = "0123456789abcdef0123456789abcdef";
+    const std::string serverNonce = "fedcba9876543210fedcba9876543210";
+    const auto pairRequest = session.begin(pairingToken, "TESTDEVICE", clientNonce);
     assert(pairRequest);
     assert(pairRequest.value().find("\"type\":\"pair.request\"") != std::string::npos);
+    assert(pairRequest.value().find("pairingToken") == std::string::npos);
     assert(session.status().state == CompanionConnectionState::Pairing);
 
+    const std::string serverProof = crypto::hmacSha256Hex(pairingToken,
+        "server|TESTDEVICE|" + clientNonce + "|" + serverNonce);
+    const auto challenge = session.receive(
+        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        serverNonce + "\",\"proof\":\"" + serverProof + "\"}");
+    assert(challenge);
+    assert(challenge.value().has_value());
+    assert(challenge.value()->find("\"type\":\"pair.proof\"") != std::string::npos);
+    assert(session.status().state == CompanionConnectionState::Authenticating);
+
     const auto pairAccepted = session.receive(
-        R"({"version":1,"type":"pair.accepted","sessionToken":"test-token"})");
+        R"({"version":2,"type":"pair.accepted","sessionToken":"test-token"})");
     assert(pairAccepted);
     assert(pairAccepted.value().has_value());
     assert(pairAccepted.value()->find("\"type\":\"hello\"") != std::string::npos);
     assert(session.status().state == CompanionConnectionState::Handshaking);
 
+    CompanionSession tamperedSession;
+    assert(tamperedSession.begin(pairingToken, "TESTDEVICE", clientNonce));
+    const auto tampered = tamperedSession.receive(
+        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        serverNonce + "\",\"proof\":\"" + std::string(64, '0') + "\"}");
+    assert(!tampered);
+    assert(tampered.error() == CompanionError::AuthenticationFailed);
+
+    CompanionSession replaySession;
+    const std::string freshClientNonce = "11111111111111111111111111111111";
+    assert(replaySession.begin(pairingToken, "TESTDEVICE", freshClientNonce));
+    const auto replayed = replaySession.receive(
+        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        serverNonce + "\",\"proof\":\"" + serverProof + "\"}");
+    assert(!replayed);
+    assert(replayed.error() == CompanionError::AuthenticationFailed);
+
+    assert(crypto::hmacSha256Hex("6b6579", "The quick brown fox jumps over the lazy dog") ==
+        "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8");
+
     const auto helloAck = session.receive(
-        R"({"version":1,"type":"hello.ack","server":"android-companion"})");
+        R"({"version":2,"type":"hello.ack","server":"android-companion"})");
     assert(helloAck);
     assert(!helloAck.value().has_value());
     assert(session.status().state == CompanionConnectionState::Online);
@@ -41,7 +77,7 @@ int main() {
     assert(ping.value().find("\"sequence\":1") != std::string::npos);
     assert(ping.value().find("\"switchBatteryPercent\":64") != std::string::npos);
     const auto pong = session.receive(
-        R"({"version":1,"type":"pong","sequence":1,"phoneBatteryPercent":73})");
+        R"({"version":2,"type":"pong","sequence":1,"phoneBatteryPercent":73})");
     assert(pong);
     assert(session.status().lastSequence == 1);
     assert(session.status().remoteBatteryPercent == 73);
@@ -49,7 +85,7 @@ int main() {
     const auto secondPing = session.heartbeat();
     assert(secondPing);
     const auto mismatchedPong = session.receive(
-        R"({"version":1,"type":"pong","sequence":99})");
+        R"({"version":2,"type":"pong","sequence":99})");
     assert(!mismatchedPong);
     assert(mismatchedPong.error() == CompanionError::HeartbeatMismatch);
     assert(session.status().state == CompanionConnectionState::Failed);

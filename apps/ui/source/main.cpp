@@ -35,7 +35,8 @@ public:
             return switch_auto::Result<void, switch_auto::CompanionError>::failure(
                 switch_auto::CompanionError::InvalidEndpoint);
         }
-        const auto pairing = validator.begin(pairingCode);
+        const auto pairing = validator.begin(pairingCode, "SIMULATOR",
+            "0123456789abcdef0123456789abcdef");
         if (!pairing) {
             return switch_auto::Result<void, switch_auto::CompanionError>::failure(
                 pairing.error());

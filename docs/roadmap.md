@@ -22,6 +22,8 @@
 - [x] inicialização automática após o primeiro pareamento;
 - [x] redescoberta após queda ou mudança de IP;
 - [x] backoff exponencial cancelável limitado a 16 segundos;
+- [x] autenticação mútua desafio–resposta com HMAC-SHA256;
+- [x] protocolo v2 sem transmissão da credencial de pareamento;
 - carregar tema padrão e traduções `en-US`/`pt-BR`;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;

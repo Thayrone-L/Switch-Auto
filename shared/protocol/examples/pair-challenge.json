@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "type": "pair.challenge",
+  "serverNonce": "fedcba9876543210fedcba9876543210",
+  "proof": "HMAC-SHA256(server|deviceId|clientNonce|serverNonce)"
+}

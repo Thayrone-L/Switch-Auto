@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "type": "pair.request",
   "deviceName": "Nintendo Switch",
   "deviceId": "A1B2C3D4E5F60708",
-  "pairingToken": "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+  "clientNonce": "0123456789abcdef0123456789abcdef"
 }

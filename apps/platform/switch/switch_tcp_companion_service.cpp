@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -70,8 +71,24 @@ int openSocket(const CompanionEndpoint& endpoint) {
 bool permanentProtocolError(CompanionError error) {
     return error == CompanionError::InvalidPairingCode ||
            error == CompanionError::PairingRejected ||
+           error == CompanionError::AuthenticationFailed ||
            error == CompanionError::UnsupportedVersion ||
            error == CompanionError::InvalidMessage;
+}
+
+std::optional<std::string> createNonce() {
+    std::array<unsigned char, 16> bytes{};
+    if (R_FAILED(csrngInitialize())) return std::nullopt;
+    const ::Result result = csrngGetRandomBytes(bytes.data(), bytes.size());
+    csrngExit();
+    if (R_FAILED(result)) return std::nullopt;
+    constexpr char alphabet[] = "0123456789abcdef";
+    std::string nonce(bytes.size() * 2, '0');
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+        nonce[index * 2] = alphabet[bytes[index] >> 4];
+        nonce[index * 2 + 1] = alphabet[bytes[index] & 0x0f];
+    }
+    return nonce;
 }
 
 std::optional<CompanionEndpoint> discoverCompanion(
@@ -111,7 +128,7 @@ std::optional<CompanionEndpoint> discoverCompanion(
         ::connect(socketFd, reinterpret_cast<sockaddr*>(&unconnected), sizeof(unconnected));
     }
     const std::string probe =
-        "{\"version\":1,\"type\":\"discover.request\",\"deviceId\":\"" +
+        "{\"version\":2,\"type\":\"discover.request\",\"deviceId\":\"" +
         identity.deviceId + "\"}\n";
 
     std::optional<CompanionEndpoint> endpoint;
@@ -131,7 +148,7 @@ std::optional<CompanionEndpoint> discoverCompanion(
         const ssize_t received = ::recvfrom(socketFd, buffer, sizeof(buffer) - 1, 0,
             reinterpret_cast<sockaddr*>(&sender), &senderLength);
         if (received > 0 && std::strstr(buffer, "\"type\":\"discover.reply\"") &&
-            std::strstr(buffer, "\"version\":1")) {
+            std::strstr(buffer, "\"version\":2")) {
             char address[INET_ADDRSTRLEN]{};
             if (::inet_ntop(AF_INET, &sender.sin_addr, address, sizeof(address))) {
                 endpoint = CompanionEndpoint{address, kCompanionPort};
@@ -191,7 +208,7 @@ Result<void, CompanionError> SwitchTcpCompanionService::connect(
         return Result<void, CompanionError>::failure(CompanionError::InvalidEndpoint);
     }
     CompanionSession validator;
-    if (!validator.begin(pairingCode)) {
+    if (!validator.begin(pairingCode, "manual", "00000000000000000000000000000000")) {
         return Result<void, CompanionError>::failure(CompanionError::InvalidPairingCode);
     }
 
@@ -297,39 +314,44 @@ CompanionError SwitchTcpCompanionService::runSession(
         endpoint.port);
 
     CompanionError failure = CompanionError::None;
+    const auto clientNonce = createNonce();
+    if (!clientNonce) {
+        ::close(socketFd);
+        return CompanionError::TransportUnavailable;
+    }
     const auto pairRequest = session.begin(
-        pairingToken, identity_ ? identity_->pairingInfo().deviceId : "");
+        pairingToken, identity_ ? identity_->pairingInfo().deviceId : "", *clientNonce);
     publish(session.status());
     std::string response;
 
-    if (!pairRequest || !sendAll(socketFd, pairRequest.value()) ||
-            !receiveLine(socketFd, response)) {
-            failure = pairRequest ? CompanionError::ConnectionClosed : pairRequest.error();
-        } else {
-            brls::Logger::info("Companion protocol: pair.request sent deviceId={}",
-                identity_ ? identity_->pairingInfo().deviceId : "unknown");
-            const auto pairResponse = session.receive(response);
-            publish(session.status());
-            if (!pairResponse) {
-                failure = pairResponse.error();
-            } else if (!pairResponse.value() ||
-                       !sendAll(socketFd, *pairResponse.value()) ||
-                       !receiveLine(socketFd, response)) {
+    if (!pairRequest || !sendAll(socketFd, pairRequest.value())) {
+        failure = pairRequest ? CompanionError::ConnectionClosed : pairRequest.error();
+    } else {
+        brls::Logger::info("Companion protocol: pair.request sent deviceId={}",
+            identity_ ? identity_->pairingInfo().deviceId : "unknown");
+        while (failure == CompanionError::None &&
+               session.status().state != CompanionConnectionState::Online) {
+            if (!receiveLine(socketFd, response)) {
                 failure = CompanionError::ConnectionClosed;
-            } else {
-                const auto helloResponse = session.receive(response);
-                publish(session.status());
-                if (!helloResponse) failure = helloResponse.error();
-                else {
-                    brls::Logger::info("Companion protocol: session online");
-                    hasTrustedCompanion_ = true;
-                    if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "wb")) {
-                        std::fputs("1\n", trusted);
-                        std::fclose(trusted);
-                    }
-                }
+                break;
+            }
+            const auto next = session.receive(response);
+            publish(session.status());
+            if (!next) {
+                failure = next.error();
+            } else if (next.value() && !sendAll(socketFd, *next.value())) {
+                failure = CompanionError::ConnectionClosed;
             }
         }
+        if (failure == CompanionError::None) {
+            brls::Logger::info("Companion protocol: mutually authenticated session online");
+            hasTrustedCompanion_ = true;
+            if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "wb")) {
+                std::fputs("1\n", trusted);
+                std::fclose(trusted);
+            }
+        }
+    }
 
     while (failure == CompanionError::None && !stopRequested_) {
             std::unique_lock<std::mutex> lock(waitMutex_);

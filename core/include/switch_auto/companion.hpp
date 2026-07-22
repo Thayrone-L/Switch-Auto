@@ -10,13 +10,14 @@
 namespace switch_auto {
 
 inline constexpr std::uint16_t kCompanionPort = 38471;
-inline constexpr int kProtocolVersion = 1;
+inline constexpr int kProtocolVersion = 2;
 
 enum class CompanionConnectionState {
     Disconnected,
     Discovering,
     Connecting,
     Pairing,
+    Authenticating,
     Handshaking,
     Online,
     Reconnecting,
@@ -31,6 +32,7 @@ enum class CompanionError {
     UnsupportedVersion,
     UnexpectedMessage,
     PairingRejected,
+    AuthenticationFailed,
     NotOnline,
     HeartbeatMismatch,
     TransportUnavailable,
@@ -80,7 +82,8 @@ public:
 class CompanionSession {
 public:
     Result<std::string, CompanionError> begin(
-        std::string_view pairingCode, std::string_view deviceId = {});
+        std::string_view pairingToken, std::string_view deviceId,
+        std::string_view clientNonce);
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
     Result<std::string, CompanionError> heartbeat(std::optional<int> localBatteryPercent = std::nullopt);
     void transportConnected();
@@ -95,6 +98,10 @@ private:
     CompanionStatus status_;
     std::uint32_t nextSequence_ = 1;
     std::optional<std::uint32_t> pendingSequence_;
+    std::string pairingToken_;
+    std::string deviceId_;
+    std::string clientNonce_;
+    std::string serverNonce_;
 };
 
 const char* toString(CompanionConnectionState state);

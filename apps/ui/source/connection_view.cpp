@@ -14,6 +14,8 @@ std::string statusText(const CompanionStatus& status) {
             return "switch_auto/status/connecting"_i18n;
         case CompanionConnectionState::Pairing:
             return "switch_auto/status/pairing"_i18n;
+        case CompanionConnectionState::Authenticating:
+            return "switch_auto/status/authenticating"_i18n;
         case CompanionConnectionState::Handshaking:
             return "switch_auto/status/handshaking"_i18n;
         case CompanionConnectionState::Online:

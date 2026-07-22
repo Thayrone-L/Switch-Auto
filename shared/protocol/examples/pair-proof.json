@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "type": "pair.proof",
+  "deviceId": "A1B2C3D4E5F60708",
+  "proof": "HMAC-SHA256(client|deviceId|clientNonce|serverNonce)"
+}

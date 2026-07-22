@@ -1,4 +1,5 @@
 #include "switch_auto/companion.hpp"
+#include "switch_auto/crypto.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -36,38 +37,34 @@ std::optional<std::uint32_t> unsignedField(std::string_view json, std::string_vi
 }
 
 bool validPairingCode(std::string_view code) {
-    const bool legacyCode = code.size() == 6 &&
-        std::all_of(code.begin(), code.end(), [](char value) {
-            return std::isdigit(static_cast<unsigned char>(value));
-        });
-    const bool pairingToken = code.size() == 64 &&
+    return code.size() == 64 &&
         std::all_of(code.begin(), code.end(), [](char value) {
             return std::isxdigit(static_cast<unsigned char>(value));
         });
-    return legacyCode || pairingToken;
 }
 
 std::string envelope(std::string_view payload) {
-    return "{\"version\":1," + std::string(payload) + "}\n";
+    return "{\"version\":2," + std::string(payload) + "}\n";
 }
 
 }  // namespace
 
 Result<std::string, CompanionError> CompanionSession::begin(
-    std::string_view pairingCode, std::string_view deviceId) {
+    std::string_view pairingToken, std::string_view deviceId,
+    std::string_view clientNonce) {
     reset();
-    if (!validPairingCode(pairingCode)) {
+    if (!validPairingCode(pairingToken) || deviceId.empty() || clientNonce.size() != 32) {
         status_.state = CompanionConnectionState::Failed;
         status_.lastError = CompanionError::InvalidPairingCode;
         return Result<std::string, CompanionError>::failure(status_.lastError);
     }
     status_.state = CompanionConnectionState::Pairing;
-    const std::string identityField = deviceId.empty()
-        ? ""
-        : ",\"deviceId\":\"" + std::string(deviceId) + "\"";
+    pairingToken_ = pairingToken;
+    deviceId_ = deviceId;
+    clientNonce_ = clientNonce;
     return Result<std::string, CompanionError>::success(envelope(
-        "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"pairingToken\":\"" +
-        std::string(pairingCode) + "\"" + identityField));
+        "\"type\":\"pair.request\",\"deviceName\":\"Nintendo Switch\",\"deviceId\":\"" +
+        deviceId_ + "\",\"clientNonce\":\"" + clientNonce_ + "\""));
 }
 
 void CompanionSession::transportConnected() {
@@ -84,6 +81,29 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
     }
 
     if (status_.state == CompanionConnectionState::Pairing) {
+        if (*type == "pair.rejected") return fail(CompanionError::PairingRejected);
+        if (*type != "pair.challenge") return fail(CompanionError::UnexpectedMessage);
+        const auto serverNonce = stringField(line, "serverNonce");
+        const auto proof = stringField(line, "proof");
+        if (!serverNonce || serverNonce->size() != 32 || !proof) {
+            return fail(CompanionError::InvalidMessage);
+        }
+        const std::string transcript = "server|" + deviceId_ + "|" + clientNonce_ +
+            "|" + *serverNonce;
+        const std::string expected = crypto::hmacSha256Hex(pairingToken_, transcript);
+        if (!crypto::constantTimeEquals(expected, *proof)) {
+            return fail(CompanionError::AuthenticationFailed);
+        }
+        serverNonce_ = *serverNonce;
+        status_.state = CompanionConnectionState::Authenticating;
+        const std::string clientProof = crypto::hmacSha256Hex(pairingToken_,
+            "client|" + deviceId_ + "|" + clientNonce_ + "|" + serverNonce_);
+        return Result<std::optional<std::string>, CompanionError>::success(envelope(
+            "\"type\":\"pair.proof\",\"deviceId\":\"" + deviceId_ +
+            "\",\"proof\":\"" + clientProof + "\""));
+    }
+
+    if (status_.state == CompanionConnectionState::Authenticating) {
         if (*type == "pair.rejected") return fail(CompanionError::PairingRejected);
         if (*type != "pair.accepted") return fail(CompanionError::UnexpectedMessage);
         status_.sessionToken = stringField(line, "sessionToken");
@@ -145,6 +165,10 @@ void CompanionSession::reset() {
     status_ = {};
     nextSequence_ = 1;
     pendingSequence_.reset();
+    pairingToken_.clear();
+    deviceId_.clear();
+    clientNonce_.clear();
+    serverNonce_.clear();
 }
 
 Result<std::optional<std::string>, CompanionError> CompanionSession::fail(CompanionError error) {
@@ -160,6 +184,7 @@ const char* toString(CompanionConnectionState state) {
         case CompanionConnectionState::Discovering: return "discovering";
         case CompanionConnectionState::Connecting: return "connecting";
         case CompanionConnectionState::Pairing: return "pairing";
+        case CompanionConnectionState::Authenticating: return "authenticating";
         case CompanionConnectionState::Handshaking: return "handshaking";
         case CompanionConnectionState::Online: return "online";
         case CompanionConnectionState::Reconnecting: return "reconnecting";
@@ -177,6 +202,7 @@ const char* toString(CompanionError error) {
         case CompanionError::UnsupportedVersion: return "unsupported_version";
         case CompanionError::UnexpectedMessage: return "unexpected_message";
         case CompanionError::PairingRejected: return "pairing_rejected";
+        case CompanionError::AuthenticationFailed: return "authentication_failed";
         case CompanionError::NotOnline: return "not_online";
         case CompanionError::HeartbeatMismatch: return "heartbeat_mismatch";
         case CompanionError::TransportUnavailable: return "transport_unavailable";

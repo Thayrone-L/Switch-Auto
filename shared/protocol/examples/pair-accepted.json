@@ -1,7 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
   "type": "pair.accepted",
   "timestamp": 1784600000000,
   "sessionToken": "prototype-token-not-yet-persisted"
 }
-

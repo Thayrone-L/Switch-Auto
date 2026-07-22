@@ -13,6 +13,7 @@ $sources = @(
     (Join-Path $root 'core\source\widget.cpp'),
     (Join-Path $root 'core\source\application.cpp'),
     (Join-Path $root 'core\source\companion.cpp'),
+    (Join-Path $root 'core\source\crypto.cpp'),
     (Join-Path $root 'tests\core_tests.cpp')
 )
 

@@ -29,14 +29,18 @@ import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
-private const val PROTOCOL_VERSION = 1
+private const val PROTOCOL_VERSION = 2
 private const val SERVER_PORT = 38471
 private const val DISCOVERY_PORT = 38472
 
@@ -179,6 +183,10 @@ class MainActivity : Activity() {
                 val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
                 val writer = BufferedWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8))
                 var paired = false
+                var pendingDeviceId: String? = null
+                var pendingToken: String? = null
+                var pendingClientNonce: String? = null
+                var pendingServerNonce: String? = null
 
                 while (running.get()) {
                     val line = reader.readLine() ?: break
@@ -199,19 +207,49 @@ class MainActivity : Activity() {
                     when (request.optString("type")) {
                         "pair.request" -> {
                             val deviceId = request.optString("deviceId")
-                            val suppliedToken = request.optString("pairingToken")
+                            val clientNonce = request.optString("clientNonce")
                             val savedToken = getPreferences(MODE_PRIVATE)
                                 .getString("pairedToken.$deviceId", null)
-                            if (deviceId.isNotBlank() &&
-                                savedToken != null && suppliedToken == savedToken) {
+                            if (deviceId.isNotBlank() && savedToken != null &&
+                                clientNonce.matches(Regex("[a-fA-F0-9]{32}"))) {
+                                val serverNonce = randomNonce()
+                                pendingDeviceId = deviceId
+                                pendingToken = savedToken
+                                pendingClientNonce = clientNonce.lowercase(Locale.US)
+                                pendingServerNonce = serverNonce
+                                val transcript =
+                                    "server|$deviceId|${pendingClientNonce}|$serverNonce"
+                                send(writer, message("pair.challenge")
+                                    .put("serverNonce", serverNonce)
+                                    .put("proof", hmacSha256(savedToken, transcript)))
+                            } else {
+                                appendLog("Pair rejected for deviceId=$deviceId: unknown device or invalid nonce")
+                                send(writer, message("pair.rejected").put("reason", "unknown_device"))
+                            }
+                        }
+                        "pair.proof" -> {
+                            val deviceId = request.optString("deviceId")
+                            val suppliedProof = request.optString("proof")
+                            val token = pendingToken
+                            val clientNonce = pendingClientNonce
+                            val serverNonce = pendingServerNonce
+                            val expected = if (token != null && clientNonce != null &&
+                                serverNonce != null && deviceId == pendingDeviceId) {
+                                hmacSha256(token,
+                                    "client|$deviceId|$clientNonce|$serverNonce")
+                            } else ""
+                            if (expected.isNotEmpty() && secureEquals(expected, suppliedProof)) {
                                 paired = true
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
                                 runOnUiThread { statusView.text = "Switch paired: $remote" }
                             } else {
-                                appendLog("Pair rejected for deviceId=$deviceId: credential mismatch")
-                                send(writer, message("pair.rejected").put("reason", "invalid_credential"))
+                                appendLog("Authentication rejected for deviceId=$deviceId: invalid proof")
+                                send(writer, message("pair.rejected").put("reason", "invalid_proof"))
                             }
+                            pendingToken = null
+                            pendingClientNonce = null
+                            pendingServerNonce = null
                         }
                         "hello" -> if (paired) {
                             send(writer, message("hello.ack").put("server", "android-companion"))
@@ -369,6 +407,25 @@ class MainActivity : Activity() {
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         return if (level >= 0 && scale > 0) level * 100 / scale else 0
     }
+
+    private fun randomNonce(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun hmacSha256(hexKey: String, message: String): String {
+        val key = hexKey.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(message.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun secureEquals(left: String, right: String): Boolean =
+        MessageDigest.isEqual(
+            left.lowercase(Locale.US).toByteArray(Charsets.US_ASCII),
+            right.lowercase(Locale.US).toByteArray(Charsets.US_ASCII))
 
     private fun findIpv4Address(): String? = try {
         NetworkInterface.getNetworkInterfaces().toList()

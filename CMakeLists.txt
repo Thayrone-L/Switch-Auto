@@ -24,6 +24,7 @@ set(SWITCH_AUTO_SOURCES
     apps/ui/source/main.cpp
     apps/ui/source/qr_code_view.cpp
     core/source/companion.cpp
+    core/source/crypto.cpp
     extern/qrcodegen/qrcodegen.cpp
 )
 

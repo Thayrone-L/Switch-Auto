@@ -11,6 +11,7 @@
         "discovering": "SEARCHING FOR ANDROID...",
         "connecting": "CONNECTING...",
         "pairing": "PAIRING...",
+        "authenticating": "AUTHENTICATING DEVICES...",
         "handshaking": "STARTING SESSION...",
         "reconnecting": "RECONNECTING...",
         "retrying": "RETRYING IN {}s · ATTEMPT {}",

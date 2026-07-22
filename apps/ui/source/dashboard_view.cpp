@@ -111,6 +111,9 @@ void DashboardView::refresh() {
         case CompanionConnectionState::Pairing:
             connectionLabel_->setText("switch_auto/status/pairing"_i18n);
             break;
+        case CompanionConnectionState::Authenticating:
+            connectionLabel_->setText("switch_auto/status/authenticating"_i18n);
+            break;
         case CompanionConnectionState::Handshaking:
             connectionLabel_->setText("switch_auto/status/handshaking"_i18n);
             break;

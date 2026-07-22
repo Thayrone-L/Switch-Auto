@@ -3,7 +3,7 @@
 Este diretório armazenará os schemas e exemplos versionados das mensagens
 trocadas entre o companion Android e o homebrew.
 
-Formato do protótipo de handshake:
+Formato do protocolo v2:
 
 - transporte: TCP na porta `38471`;
 - codificação: JSON UTF-8;
@@ -19,8 +19,14 @@ Fluxo implementado:
 
 ```text
 discover.request → discover.reply → TCP
-pair.request → pair.accepted → hello → hello.ack → ping ⇄ pong
+pair.request → pair.challenge → pair.proof → pair.accepted
+             → hello → hello.ack → ping ⇄ pong
 ```
+
+O token obtido pelo QR nunca é enviado pela rede. Cada sessão usa nonces
+aleatórios de 128 bits e provas HMAC-SHA256 separadas por papel (`server|...` e
+`client|...`). A comparação das provas evita curto-circuito e uma prova de uma
+sessão não é reutilizável em outra com nonces diferentes.
 
 O `ping` enviado pelo Switch inclui `switchBatteryPercent`; o `pong` devolvido
 pelo Companion inclui `phoneBatteryPercent`. Ambos são inteiros entre 0 e 100.
@@ -36,8 +42,7 @@ Todas as esperas são canceláveis e nenhuma operação de rede bloqueia a threa
 interface Borealis.
 
 Exemplos concretos estão em [`examples/`](examples/). O Companion persiste a
-associação entre `deviceId` e token depois da leitura do QR. Credenciais e tokens
-de sessão são omitidos dos logs. O transporte ainda não é criptografado e o token
-é enviado no primeiro frame TCP; esse passo será substituído por desafio-resposta
-antes de uma versão de produção. TCP será substituído ou
+associação entre `deviceId` e token depois da leitura do QR. Credenciais, provas e
+tokens de sessão são omitidos dos logs. A autenticação é mútua, mas o conteúdo da
+sessão ainda não é criptografado. TCP será substituído ou
 encapsulado por um transporte autenticado após validar a comunicação física.
