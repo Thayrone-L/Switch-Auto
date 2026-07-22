@@ -13,6 +13,8 @@ namespace {
 
 constexpr int kSocketTimeoutSeconds = 10;
 constexpr std::uint16_t kDiscoveryPort = 38472;
+constexpr int kDiscoveryAttempts = 4;
+constexpr int kDiscoveryTimeoutSeconds = 1;
 constexpr auto kReconnectDelay = std::chrono::seconds(3);
 constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
 constexpr std::size_t kMaximumMessageSize = 4096;
@@ -72,21 +74,45 @@ std::optional<CompanionEndpoint> discoverCompanion(
     int enabled = 1;
     ::setsockopt(socketFd, SOL_SOCKET, SO_BROADCAST, &enabled, sizeof(enabled));
     timeval timeout{};
-    timeout.tv_sec = 2;
+    timeout.tv_sec = kDiscoveryTimeoutSeconds;
     ::setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    sockaddr_in target{};
-    target.sin_family = AF_INET;
-    target.sin_port = htons(kDiscoveryPort);
-    target.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    sockaddr_in globalTarget{};
+    globalTarget.sin_family = AF_INET;
+    globalTarget.sin_port = htons(kDiscoveryPort);
+    globalTarget.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+
+    // Some Android hotspots do not forward 255.255.255.255, but accept their
+    // subnet broadcast. Infer the current /24 address from the selected route.
+    sockaddr_in subnetTarget = globalTarget;
+    sockaddr_in routeTarget{};
+    routeTarget.sin_family = AF_INET;
+    routeTarget.sin_port = htons(9);
+    ::inet_pton(AF_INET, "8.8.8.8", &routeTarget.sin_addr);
+    if (::connect(socketFd, reinterpret_cast<sockaddr*>(&routeTarget),
+            sizeof(routeTarget)) == 0) {
+        sockaddr_in local{};
+        socklen_t localLength = sizeof(local);
+        if (::getsockname(socketFd, reinterpret_cast<sockaddr*>(&local), &localLength) == 0) {
+            subnetTarget.sin_addr.s_addr = local.sin_addr.s_addr | htonl(0x000000FFU);
+        }
+        sockaddr_in unconnected{};
+        unconnected.sin_family = AF_UNSPEC;
+        ::connect(socketFd, reinterpret_cast<sockaddr*>(&unconnected), sizeof(unconnected));
+    }
     const std::string probe =
         "{\"version\":1,\"type\":\"discover.request\",\"deviceId\":\"" +
         identity.deviceId + "\"}\n";
 
     std::optional<CompanionEndpoint> endpoint;
-    while (!stopRequested && !endpoint) {
+    for (int attempt = 0; attempt < kDiscoveryAttempts && !stopRequested && !endpoint;
+         ++attempt) {
         ::sendto(socketFd, probe.data(), probe.size(), 0,
-            reinterpret_cast<sockaddr*>(&target), sizeof(target));
+            reinterpret_cast<sockaddr*>(&globalTarget), sizeof(globalTarget));
+        if (subnetTarget.sin_addr.s_addr != globalTarget.sin_addr.s_addr) {
+            ::sendto(socketFd, probe.data(), probe.size(), 0,
+                reinterpret_cast<sockaddr*>(&subnetTarget), sizeof(subnetTarget));
+        }
         char buffer[512]{};
         sockaddr_in sender{};
         socklen_t senderLength = sizeof(sender);
@@ -122,7 +148,7 @@ Result<void, CompanionError> SwitchTcpCompanionService::startAutomaticPairing() 
     }
     disconnect();
     stopRequested_ = false;
-    publish({CompanionConnectionState::Connecting, CompanionError::None});
+    publish({CompanionConnectionState::Discovering, CompanionError::None});
     worker_ = std::thread(&SwitchTcpCompanionService::runDiscovery, this);
     return Result<void, CompanionError>::success();
 }
@@ -169,7 +195,7 @@ void SwitchTcpCompanionService::runDiscovery() {
     const auto endpoint = discoverCompanion(info, stopRequested_);
     if (stopRequested_) return;
     if (!endpoint) {
-        publish({CompanionConnectionState::Failed, CompanionError::TransportUnavailable});
+        publish({CompanionConnectionState::Failed, CompanionError::DiscoveryTimeout});
         return;
     }
     run(*endpoint, info.code);

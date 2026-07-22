@@ -8,6 +8,7 @@
     "status": {
         "connected": "ANDROID CONNECTED",
         "offline": "ANDROID OFFLINE",
+        "discovering": "SEARCHING FOR ANDROID...",
         "connecting": "CONNECTING...",
         "pairing": "PAIRING...",
         "handshaking": "STARTING SESSION...",
@@ -29,6 +30,7 @@
         "open": "CONFIGURE CONNECTION",
         "connected": "CONNECTED",
         "ready": "Ready to connect",
+        "not_found": "Companion not found. Confirm that the server is running and try again.",
         "error": "Connection error: {}"
     },
     "media": {

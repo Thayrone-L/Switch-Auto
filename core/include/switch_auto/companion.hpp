@@ -14,6 +14,7 @@ inline constexpr int kProtocolVersion = 1;
 
 enum class CompanionConnectionState {
     Disconnected,
+    Discovering,
     Connecting,
     Pairing,
     Handshaking,
@@ -33,6 +34,7 @@ enum class CompanionError {
     NotOnline,
     HeartbeatMismatch,
     TransportUnavailable,
+    DiscoveryTimeout,
     ConnectionTimeout,
     ConnectionClosed,
 };

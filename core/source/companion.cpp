@@ -141,6 +141,7 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::fail(Compan
 const char* toString(CompanionConnectionState state) {
     switch (state) {
         case CompanionConnectionState::Disconnected: return "disconnected";
+        case CompanionConnectionState::Discovering: return "discovering";
         case CompanionConnectionState::Connecting: return "connecting";
         case CompanionConnectionState::Pairing: return "pairing";
         case CompanionConnectionState::Handshaking: return "handshaking";
@@ -163,6 +164,7 @@ const char* toString(CompanionError error) {
         case CompanionError::NotOnline: return "not_online";
         case CompanionError::HeartbeatMismatch: return "heartbeat_mismatch";
         case CompanionError::TransportUnavailable: return "transport_unavailable";
+        case CompanionError::DiscoveryTimeout: return "discovery_timeout";
         case CompanionError::ConnectionTimeout: return "connection_timeout";
         case CompanionError::ConnectionClosed: return "connection_closed";
     }

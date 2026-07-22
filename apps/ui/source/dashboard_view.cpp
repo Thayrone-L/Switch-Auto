@@ -93,6 +93,9 @@ void DashboardView::refresh() {
     speedLabel_->setText(buffer);
     speedUnitLabel_->setText("switch_auto/dashboard/speed_unit"_i18n);
     switch (connectionState) {
+        case CompanionConnectionState::Discovering:
+            connectionLabel_->setText("switch_auto/status/discovering"_i18n);
+            break;
         case CompanionConnectionState::Connecting:
             connectionLabel_->setText("switch_auto/status/connecting"_i18n);
             break;
