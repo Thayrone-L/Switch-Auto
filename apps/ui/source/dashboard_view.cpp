@@ -44,7 +44,8 @@ void updateRuntime(MutableRuntimeService& runtime) {
 DashboardView::DashboardView() {
     inflateFromXMLRes("xml/views/dashboard.xml");
     connectionButton_->registerClickAction([](brls::View*) {
-        openConnectionScreen(companion_);
+        CompanionService* service = companion_;
+        brls::sync([service]() { openConnectionScreen(service); });
         return true;
     });
     refresh();

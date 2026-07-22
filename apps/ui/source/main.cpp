@@ -68,20 +68,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-#ifdef __SWITCH__
-    psmInitialize();
-    const Result socketResult = socketInitializeDefault();
-#endif
-
     switch_auto::MutableRuntimeService runtime;
     std::unique_ptr<switch_auto::CompanionService> companion;
 #ifdef __SWITCH__
-    if (R_SUCCEEDED(socketResult)) {
-        companion = std::make_unique<
-            switch_auto::platform::switch_platform::SwitchTcpCompanionService>();
-    } else {
-        brls::Logger::error("Unable to initialize Switch sockets: 0x{:x}", socketResult);
-    }
+    // Borealis' switch_wrapper owns socket/PSM initialization and shutdown.
+    companion = std::make_unique<
+        switch_auto::platform::switch_platform::SwitchTcpCompanionService>();
 #else
     companion = std::make_unique<SimulatorCompanionService>();
 #endif
@@ -104,8 +96,6 @@ int main(int argc, char** argv) {
 #ifdef __SWITCH__
     switch_auto::ui::DashboardView::setCompanionService(nullptr);
     companion.reset();
-    if (R_SUCCEEDED(socketResult)) socketExit();
-    psmExit();
 #endif
     return 0;
 }
