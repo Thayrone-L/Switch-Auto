@@ -11,6 +11,7 @@
 #include "switch_auto/crypto.hpp"
 #include "switch_auto/service_registry.hpp"
 #include "switch_auto/widget.hpp"
+#include "switch_auto/widget_layout.hpp"
 
 int main() {
     using namespace switch_auto;
@@ -221,6 +222,21 @@ int main() {
     assert(widgetRegistry.resume("core.battery"));
     widgetRegistry.disposeAll();
     assert(widgetRegistry.lifecycle("core.battery") == WidgetLifecycle::Disposed);
+
+    WidgetLayout layout = WidgetLayout::defaultAutomotive();
+    assert(layout.validate() == WidgetLayoutError::None);
+    assert(layout.find("core.gps")->columnSpan == 8);
+    assert(layout.resize("core.gps", 4, 4) == WidgetLayoutError::BelowMinimumSize);
+    assert(layout.move("core.speed", 7, 0) == WidgetLayoutError::Overlap);
+    assert(layout.move("core.speed", 8, 6) == WidgetLayoutError::Overlap);
+    assert(layout.setVisible("core.media", false) == WidgetLayoutError::None);
+    assert(layout.move("core.speed", 8, 6) == WidgetLayoutError::None);
+    const std::string serializedLayout = layout.serialize();
+    const auto restoredLayout = WidgetLayout::deserialize(serializedLayout);
+    assert(restoredLayout.has_value());
+    assert(restoredLayout->find("core.speed")->row == 6);
+    assert(!WidgetLayout::deserialize(
+        R"({"schemaVersion":99,"widgets":[]})").has_value());
 
     Application application(runtime, localization);
     assert(application.lifecycle() == ApplicationLifecycle::Created);

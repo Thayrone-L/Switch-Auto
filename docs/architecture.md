@@ -167,6 +167,19 @@ Temas nunca implementam lógica da aplicação, acessam serviços ou alteram reg
 de negócio. O tema padrão usa o mesmo contrato dos demais temas e funciona como
 fallback empacotado.
 
+### Layout dos widgets
+
+A barra de sistema (relógio, conexão e baterias) é fixa. A área abaixo usa uma
+grade lógica de 12 colunas por 8 linhas. Cada `WidgetPlacement` define o
+identificador, posição, tamanho, limites mínimos e visibilidade.
+
+O `WidgetLayout` rejeita posições fora da grade, sobreposição, duplicatas e
+tamanhos abaixo do mínimo. `config/widget-layout.json` possui `schemaVersion`;
+conteúdo inválido é movido para `.corrupt` e o layout padrão é restaurado.
+
+O padrão reserva 8×8 para GPS, 4×2 para velocidade e 4×6 para mídia. O editor
+manipula somente esse modelo; widgets não conhecem gestos nem coordenadas de tela.
+
 ## 10. Internacionalização
 
 Todo texto visível ao usuário utiliza uma chave de tradução. Textos de UI não

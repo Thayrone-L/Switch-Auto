@@ -52,6 +52,8 @@
 
 - [x] widget GPS inicial com posição, precisão, velocidade e direção;
 - [x] receber e apresentar telemetria GPS na dashboard Borealis;
+- [x] definir grade versionada para widgets redimensionáveis e reorganizáveis;
+- implementar edição do layout por touch e controles;
 - [x] framing binário para snapshots de mapa sem Base64;
 - separar canais de controle, mapas e áudio para streaming contínuo;
 - foreground service para manter transporte e GPS com a tela bloqueada;

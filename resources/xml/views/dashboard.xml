@@ -10,15 +10,11 @@
 
     <brls:Box width="auto" height="72px" axis="row" alignItems="center">
         <brls:Label
-            width="24%" height="auto"
-            text="@i18n/switch_auto/title" fontSize="24"
-            horizontalAlign="left" textColor="#f04455" />
-        <brls:Label
-            id="clock" width="22%" height="auto"
+            id="clock" width="18%" height="auto"
             text="--:--" fontSize="46"
-            horizontalAlign="center" />
+            horizontalAlign="left" />
         <brls:Box
-            width="34%" height="54px" axis="row" alignItems="center"
+            width="47%" height="54px" axis="row" alignItems="center"
             paddingLeft="18px" paddingRight="6px"
             backgroundColor="#111925" cornerRadius="18">
             <brls:Label
@@ -31,38 +27,42 @@
                 width="132px" height="42px" />
         </brls:Box>
         <brls:Label
-            id="battery" width="20%" height="auto"
+            id="battery" width="35%" height="auto"
             text="--%" fontSize="22"
             horizontalAlign="right" />
     </brls:Box>
 
     <brls:Box width="auto" height="auto" axis="row" grow="1.0" marginTop="22px">
         <brls:Box
-            width="58%" height="auto" axis="column"
+            id="widget-gps"
+            width="68%" height="auto" axis="column"
             backgroundColor="#111925" cornerRadius="24">
             <brls:Image
                 id="map-image"
                 width="auto" height="auto" grow="1.0"
                 scalingType="fill" />
-            <brls:Box
-                width="auto" height="86px" axis="row"
-                justifyContent="center" alignItems="center"
-                paddingLeft="24px" paddingRight="24px">
-                <brls:Label id="speed" text="0" fontSize="58" width="150px" horizontalAlign="right" />
-                <brls:Label id="speed-unit" text="@i18n/switch_auto/dashboard/speed_unit" fontSize="20" width="80px" marginLeft="12px" textColor="#91a0b5" />
-            </brls:Box>
         </brls:Box>
 
         <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="24px">
             <brls:Box
-                width="auto" height="118px" axis="column"
+                id="widget-speed"
+                width="auto" height="122px" axis="row"
+                justifyContent="center" alignItems="center"
                 paddingTop="18px" paddingRight="24px" paddingBottom="18px" paddingLeft="24px"
                 backgroundColor="#111925" cornerRadius="24">
-                <brls:Label text="@i18n/switch_auto/gps/title" fontSize="17" height="30px" horizontalAlign="left" textColor="#f04455" />
-                <brls:Label id="gps-status" text="@i18n/switch_auto/gps/waiting" fontSize="20" height="34px" horizontalAlign="left" />
-                <brls:Label id="gps-coordinates" text="@i18n/switch_auto/gps/no_position" fontSize="15" height="auto" horizontalAlign="left" textColor="#91a0b5" />
+                <brls:Label id="speed" text="0" fontSize="58" width="145px" horizontalAlign="right" />
+                <brls:Label id="speed-unit" text="@i18n/switch_auto/dashboard/speed_unit" fontSize="20" width="70px" marginLeft="10px" textColor="#91a0b5" />
             </brls:Box>
             <brls:Box
+                width="auto" height="106px" axis="column" marginTop="16px"
+                paddingTop="14px" paddingRight="22px" paddingBottom="14px" paddingLeft="22px"
+                backgroundColor="#111925" cornerRadius="24">
+                <brls:Label text="@i18n/switch_auto/gps/title" fontSize="15" height="26px" horizontalAlign="left" textColor="#f04455" />
+                <brls:Label id="gps-status" text="@i18n/switch_auto/gps/waiting" fontSize="17" height="30px" horizontalAlign="left" />
+                <brls:Label id="gps-coordinates" text="@i18n/switch_auto/gps/no_position" fontSize="13" height="auto" horizontalAlign="left" textColor="#91a0b5" />
+            </brls:Box>
+            <brls:Box
+                id="widget-media"
                 width="auto" height="auto" axis="column" grow="1.0" marginTop="16px"
                 paddingTop="30px" paddingRight="30px" paddingBottom="30px" paddingLeft="30px"
                 backgroundColor="#111925" cornerRadius="24">

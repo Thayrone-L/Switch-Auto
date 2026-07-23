@@ -11,6 +11,7 @@ New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $sources = @(
     (Join-Path $root 'core\source\canvas.cpp'),
     (Join-Path $root 'core\source\widget.cpp'),
+    (Join-Path $root 'core\source\widget_layout.cpp'),
     (Join-Path $root 'core\source\application.cpp'),
     (Join-Path $root 'core\source\companion.cpp'),
     (Join-Path $root 'core\source\crypto.cpp'),

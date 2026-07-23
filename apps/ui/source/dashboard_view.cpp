@@ -8,6 +8,7 @@
 
 #ifdef __SWITCH__
 #include <switch.h>
+#include <sys/stat.h>
 #endif
 
 namespace switch_auto::ui {
@@ -19,6 +20,50 @@ CompanionService* DashboardView::companion_ = nullptr;
 DashboardView* DashboardView::active_ = nullptr;
 
 namespace {
+
+#ifdef __SWITCH__
+constexpr const char* kLayoutDirectory = "sdmc:/switch/switch-auto/config";
+constexpr const char* kLayoutPath =
+    "sdmc:/switch/switch-auto/config/widget-layout.json";
+constexpr const char* kLayoutTemporaryPath =
+    "sdmc:/switch/switch-auto/config/widget-layout.json.tmp";
+constexpr const char* kLayoutCorruptPath =
+    "sdmc:/switch/switch-auto/config/widget-layout.json.corrupt";
+
+WidgetLayout loadWidgetLayout() {
+    WidgetLayout fallback = WidgetLayout::defaultAutomotive();
+    std::FILE* file = std::fopen(kLayoutPath, "rb");
+    if (!file) {
+        ::mkdir(kLayoutDirectory, 0700);
+        if (std::FILE* output = std::fopen(kLayoutTemporaryPath, "wb")) {
+            const std::string payload = fallback.serialize();
+            std::fwrite(payload.data(), 1, payload.size(), output);
+            std::fclose(output);
+            std::rename(kLayoutTemporaryPath, kLayoutPath);
+        }
+        return fallback;
+    }
+    std::string payload;
+    char buffer[1024];
+    while (payload.size() <= 16 * 1024) {
+        const std::size_t count = std::fread(buffer, 1, sizeof(buffer), file);
+        payload.append(buffer, count);
+        if (count < sizeof(buffer)) break;
+    }
+    std::fclose(file);
+    const auto restored = payload.size() <= 16 * 1024
+        ? WidgetLayout::deserialize(payload) : std::nullopt;
+    if (restored) return *restored;
+    std::remove(kLayoutCorruptPath);
+    std::rename(kLayoutPath, kLayoutCorruptPath);
+    brls::Logger::error("Widget layout: corrupt file backed up; defaults restored");
+    return fallback;
+}
+#else
+WidgetLayout loadWidgetLayout() {
+    return WidgetLayout::defaultAutomotive();
+}
+#endif
 
 void updateRuntime(MutableRuntimeService& runtime) {
     auto& state = runtime.mutableState();
@@ -44,7 +89,9 @@ void updateRuntime(MutableRuntimeService& runtime) {
 
 DashboardView::DashboardView() {
     active_ = this;
+    widgetLayout_ = loadWidgetLayout();
     inflateFromXMLRes("xml/views/dashboard.xml");
+    applyWidgetLayout();
     connectionButton_->registerClickAction([](brls::View*) {
         CompanionService* service = companion_;
         brls::sync([service]() { openConnectionScreen(service); });
@@ -58,6 +105,23 @@ DashboardView::DashboardView() {
 DashboardView::~DashboardView() {
     refreshTimer_.stop();
     if (active_ == this) active_ = nullptr;
+}
+
+void DashboardView::applyWidgetLayout() {
+    const auto* gps = widgetLayout_.find("core.gps");
+    const auto* speed = widgetLayout_.find("core.speed");
+    const auto* media = widgetLayout_.find("core.media");
+    if (gps) {
+        gpsWidgetBox_->setWidthPercentage(
+            static_cast<float>(gps->columnSpan) / kWidgetGridColumns * 100.0f);
+    }
+    if (speed) {
+        speedWidgetBox_->setHeight(
+            488.0f * static_cast<float>(speed->rowSpan) / kWidgetGridRows);
+    }
+    if (media) {
+        mediaWidgetBox_->setGrow(media->visible ? 1.0f : 0.0f);
+    }
 }
 
 brls::View* DashboardView::create() {
