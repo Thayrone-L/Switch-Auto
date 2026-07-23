@@ -15,6 +15,7 @@ Desktop.ini
 !.env.example
 *.keystore
 *.jks
+tools/devices.local.json
 
 # Android / Gradle
 .gradle/
