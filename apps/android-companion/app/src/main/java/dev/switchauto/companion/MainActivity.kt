@@ -58,6 +58,7 @@ private const val DISCOVERY_POLL_TIMEOUT_MS = 1_000
 class MainActivity : Activity() {
     private val executor: ExecutorService = Executors.newCachedThreadPool()
     private val running = AtomicBoolean(false)
+    private lateinit var permissionManager: AndroidPermissionManager
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
@@ -76,6 +77,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        permissionManager = AndroidPermissionManager(this)
         refreshConnectionDetails()
         migratePreferences()
         val hasTrustedSwitch = getPreferences(MODE_PRIVATE).all.keys
@@ -86,7 +88,19 @@ class MainActivity : Activity() {
             appendLog("No trusted Switch yet; server will accept discovery but reject unknown devices")
         }
         appendLog("Starting Companion server automatically")
+        appendLog("Capabilities: " + permissionManager.summary().entries.joinToString {
+            "${it.key.name.lowercase(Locale.US)}=${it.value.name.lowercase(Locale.US)}"
+        })
         startServer()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        permissionManager.onRequestPermissionsResult(requestCode)
     }
 
     override fun onDestroy() {

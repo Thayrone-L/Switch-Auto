@@ -31,6 +31,8 @@
 - [x] carregar traduções `en-US`/`pt-BR` por `LocalizationService`;
 - [x] fallback de tradução `locale escolhido → en-US → chave`;
 - [x] validar integridade e paridade dos catálogos;
+- [x] definir capacidades e `PermissionService` independente de plataforma;
+- [x] implementar broker Android sem pedidos sensíveis no startup;
 - carregar tema padrão;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;

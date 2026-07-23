@@ -27,6 +27,7 @@ set(SWITCH_AUTO_SOURCES
     core/source/companion.cpp
     core/source/crypto.cpp
     core/source/localization.cpp
+    core/source/permissions.cpp
     extern/qrcodegen/qrcodegen.cpp
 )
 

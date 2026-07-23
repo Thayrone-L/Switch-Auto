@@ -49,5 +49,15 @@ As linhas de uma conexão incluem `sessionId`. O último resultado também fica 
 `diagnostics/latest.json`, com schema versionado e sem segredos. Credenciais com
 tipo ou formato inválido são removidas durante a recuperação das preferências.
 
+## Capacidades e permissões
+
+O Companion centraliza permissões em `AndroidPermissionManager`. Localização,
+estado e controle de chamadas, histórico de chamadas, notificações e execução
+em segundo plano possuem estados normalizados para o Core. Nenhuma permissão
+sensível é solicitada ao abrir o aplicativo; cada recurso deverá explicar a
+necessidade e pedir acesso somente quando o usuário o ativar. Acesso de mídia
+que depende de uma tela especial do sistema é informado como
+`requires_settings`.
+
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

@@ -7,6 +7,7 @@
 #include "switch_auto/companion.hpp"
 #include "switch_auto/event_queue.hpp"
 #include "switch_auto/localization.hpp"
+#include "switch_auto/permissions.hpp"
 #include "switch_auto/crypto.hpp"
 #include "switch_auto/service_registry.hpp"
 #include "switch_auto/widget.hpp"
@@ -159,6 +160,24 @@ int main() {
     assert(localization.translate("missing.key") == "missing.key");
     assert(!localization.setLocale("es-ES"));
     assert(localization.locale() == "pt-BR");
+
+    MutablePermissionService permissions;
+    assert(permissions.state(Capability::Location) == PermissionState::Unknown);
+    assert(permissions.canRequest(Capability::Location));
+    permissions.setState(Capability::Location, PermissionState::Denied);
+    PermissionState requestedState = PermissionState::Unknown;
+    permissions.request(Capability::Location,
+        [&requestedState](PermissionState state) { requestedState = state; });
+    assert(requestedState == PermissionState::Denied);
+    permissions.setState(
+        Capability::Location, PermissionState::PermanentlyDenied);
+    assert(!permissions.canRequest(Capability::Location));
+    permissions.setState(
+        Capability::MediaControl, PermissionState::RequiresSettings);
+    assert(permissions.canRequest(Capability::MediaControl));
+    assert(permissionDescriptor(Capability::AnswerCalls).sensitive);
+    assert(std::string(toString(Capability::BackgroundExecution)) ==
+        "background_execution");
 
     ServiceRegistry services;
     assert(services.registerService<RuntimeService>(runtime));

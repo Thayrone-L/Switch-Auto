@@ -284,9 +284,19 @@ Core, SDK, schemas, temas e widgets possuem metadados de versão conforme o ADR
 0001. Manifestos de widgets serão preparados para declarar permissões como
 `network`, `motion`, `location` e `storage`.
 
-Na V1, permissões podem existir apenas como metadados. Sandbox, carregamento de
-código externo e marketplace só serão implementados quando houver um modelo de
-segurança adequado.
+O Core representa permissões como capacidades estáveis (`network`, `location`,
+`media_control`, `phone_state`, `answer_calls`, `call_log`, `notifications`,
+`background_execution` e outras). Widgets consultam `PermissionService` pelo
+SDK; nunca chamam APIs de permissão do Android ou da plataforma diretamente.
+
+O Companion Android funciona como broker: traduz capacidades para permissões
+da versão instalada e distingue `granted`, `denied`, `permanently_denied`,
+`requires_settings`, `not_required` e `unavailable`. Pedidos sensíveis são
+sempre contextuais e iniciados por ação do usuário — nunca em lote no startup.
+Declarar uma capacidade não equivale a concedê-la.
+
+Sandbox, carregamento de código externo e marketplace só serão implementados
+quando houver um modelo de segurança adequado.
 
 ## 18. Escopo evolutivo
 
