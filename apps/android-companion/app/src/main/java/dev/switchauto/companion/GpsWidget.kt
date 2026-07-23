@@ -160,9 +160,16 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
             snapshotter = MapSnapshotter(context.activity.applicationContext, options)
             snapshotter?.start({ snapshot ->
                 val encoded = encodeSnapshot(snapshot.bitmap)
-                synchronized(this@GpsWidget) {
-                    latestMapFrame = encoded
-                    mapFrameId.incrementAndGet()
+                if (encoded != null) {
+                    synchronized(this@GpsWidget) {
+                        latestMapFrame = encoded
+                        mapFrameId.incrementAndGet()
+                    }
+                    context.log(
+                        "Widget $id map frame ready: ${encoded.size} bytes (${MAP_WIDTH}x${MAP_HEIGHT})")
+                } else {
+                    context.log(
+                        "Widget $id map frame discarded: could not fit protocol limit")
                 }
                 snapshotInProgress.set(false)
                 context.stateChanged()
@@ -173,8 +180,13 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         }
     }
 
-    private fun encodeSnapshot(source: Bitmap): ByteArray {
-        val mutable = source.copy(Bitmap.Config.ARGB_8888, true)
+    private fun encodeSnapshot(source: Bitmap): ByteArray? {
+        val scaled = if (source.width == MAP_WIDTH && source.height == MAP_HEIGHT) {
+            source
+        } else {
+            Bitmap.createScaledBitmap(source, MAP_WIDTH, MAP_HEIGHT, true)
+        }
+        val mutable = scaled.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(mutable)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(240, 68, 85)
@@ -184,17 +196,22 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         paint.strokeWidth = 5f
         paint.color = Color.WHITE
         canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
-        return ByteArrayOutputStream().use { output ->
-            mutable.compress(Bitmap.CompressFormat.JPEG, MAP_JPEG_QUALITY, output)
-            output.toByteArray()
+        for (quality in MAP_JPEG_QUALITIES) {
+            val encoded = ByteArrayOutputStream().use { output ->
+                mutable.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                output.toByteArray()
+            }
+            if (encoded.size <= MAX_MAP_FRAME_BYTES) return encoded
         }
+        return null
     }
 
     companion object {
         private const val MAP_WIDTH = 640
         private const val MAP_HEIGHT = 360
         private const val MAP_ZOOM = 16.0
-        private const val MAP_JPEG_QUALITY = 72
+        private val MAP_JPEG_QUALITIES = intArrayOf(72, 60, 48, 36)
+        private const val MAX_MAP_FRAME_BYTES = 512 * 1024
         private const val MAP_SNAPSHOT_INTERVAL_MS = 3_000L
         private const val MAP_STYLE_URI = "https://demotiles.maplibre.org/style.json"
     }

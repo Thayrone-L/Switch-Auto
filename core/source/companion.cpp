@@ -209,12 +209,12 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
         }
         pendingMapFrame_.reset();
         pendingBinaryLength_.reset();
-        if (line.find("\"mapFrame\"") != std::string_view::npos) {
-            const auto id = unsignedField(line, "id");
-            const auto length = unsignedField(line, "length");
-            const auto width = unsignedField(line, "width");
-            const auto height = unsignedField(line, "height");
-            const auto contentType = stringField(line, "contentType");
+        if (const auto mapFrame = objectField(line, "mapFrame")) {
+            const auto id = unsignedField(*mapFrame, "id");
+            const auto length = unsignedField(*mapFrame, "length");
+            const auto width = unsignedField(*mapFrame, "width");
+            const auto height = unsignedField(*mapFrame, "height");
+            const auto contentType = stringField(*mapFrame, "contentType");
             if (!id || !length || !width || !height || !contentType ||
                 *length == 0 || *length > kMaximumMapFrameSize ||
                 *width == 0 || *width > 1280 || *height == 0 || *height > 720 ||
