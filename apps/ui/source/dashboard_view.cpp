@@ -112,14 +112,20 @@ void DashboardView::applyWidgetLayout() {
     const auto* speed = widgetLayout_.find("core.speed");
     const auto* media = widgetLayout_.find("core.media");
     if (gps) {
+        gpsWidgetBox_->setVisibility(gps->visible
+            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
         gpsWidgetBox_->setWidthPercentage(
             static_cast<float>(gps->columnSpan) / kWidgetGridColumns * 100.0f);
     }
     if (speed) {
+        speedWidgetBox_->setVisibility(speed->visible
+            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
         speedWidgetBox_->setHeight(
             488.0f * static_cast<float>(speed->rowSpan) / kWidgetGridRows);
     }
     if (media) {
+        mediaWidgetBox_->setVisibility(media->visible
+            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
         mediaWidgetBox_->setGrow(media->visible ? 1.0f : 0.0f);
     }
 }
@@ -139,6 +145,14 @@ void DashboardView::setCompanionService(CompanionService* companion) {
 void DashboardView::onCompanionStatus(const CompanionStatus& status) {
     if (!active_) return;
     active_->companionStatus_ = status;
+    if (status.remoteCustomization) {
+        const auto layout = WidgetLayout::deserialize(
+            status.remoteCustomization->layoutJson);
+        if (layout) {
+            active_->widgetLayout_ = *layout;
+            active_->applyWidgetLayout();
+        }
+    }
     if (runtime_) {
         auto& state = runtime_->mutableState();
         state.companionBatteryPercent = status.remoteBatteryPercent.value_or(-1);

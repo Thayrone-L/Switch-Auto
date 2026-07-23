@@ -60,6 +60,7 @@ class MainActivity : Activity() {
     private lateinit var widgetRegistry: CompanionWidgetRegistry
     private lateinit var batteryWidget: BatteryWidget
     private lateinit var gpsWidget: GpsWidget
+    private lateinit var customizationManager: CustomizationManager
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
@@ -70,6 +71,10 @@ class MainActivity : Activity() {
     private lateinit var forgetButton: Button
     private lateinit var widgetStatusView: TextView
     private lateinit var gpsButton: Button
+    private lateinit var customizationStatusView: TextView
+    private lateinit var themeButton: Button
+    private lateinit var layoutButton: Button
+    private lateinit var applyCustomizationButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
@@ -80,7 +85,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
+        customizationManager = CustomizationManager(this)
         setContentView(buildUi())
+        customizationManager.onStateChanged = {
+            runOnUiThread(::refreshCustomizationViews)
+        }
         permissionManager = AndroidPermissionManager(this)
         initializeWidgets()
         refreshConnectionDetails()
@@ -220,6 +229,39 @@ class MainActivity : Activity() {
         widgetsCard.addView(gpsButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(widgetsCard)
+
+        val customizationCard = card(padding).apply {
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.topMargin = gap
+            layoutParams = params
+            addView(label("CUSTOMIZE", 13f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+        }
+        customizationStatusView = label("", 16f)
+        customizationCard.addView(customizationStatusView)
+        themeButton = Button(this).apply {
+            setOnClickListener { customizationManager.selectNextTheme() }
+        }
+        layoutButton = Button(this).apply {
+            setOnClickListener { customizationManager.selectNextLayout() }
+        }
+        applyCustomizationButton = Button(this).apply {
+            text = "APPLY ON SWITCH"
+            backgroundTintList = ColorStateList.valueOf(Color.rgb(240, 68, 85))
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                val revision = customizationManager.requestSync()
+                appendLog("Customization revision $revision queued")
+            }
+        }
+        customizationCard.addView(themeButton)
+        customizationCard.addView(layoutButton)
+        customizationCard.addView(applyCustomizationButton)
+        root.addView(customizationCard)
+        refreshCustomizationViews()
 
         val diagnosticsButton = Button(this).apply {
             text = "SHOW DIAGNOSTICS"
@@ -406,11 +448,14 @@ class MainActivity : Activity() {
                             send(writer, message("error").put("code", "not_paired"))
                         }
                         "ping" -> if (paired) {
+                            customizationManager.onSwitchRevision(
+                                request.optInt("customizationRevision", -1))
                             widgetRegistry.handleMessage(request)
                             val response = message("pong")
                                 .put("sequence", request.optInt("sequence"))
                             val binaryPayload =
                                 widgetRegistry.contributeTelemetry(response)
+                            customizationManager.contribute(response)
                             runOnUiThread {
                                 statusView.text = "Connected — ${batteryWidget.statusText()}"
                             }
@@ -678,6 +723,18 @@ class MainActivity : Activity() {
             "${it.title}: ${it.statusText()}"
         }
         gpsButton.text = if (gpsWidget.isEnabled()) "DISABLE GPS" else "ENABLE GPS"
+    }
+
+    private fun refreshCustomizationViews() {
+        if (!::customizationStatusView.isInitialized) return
+        customizationStatusView.text = customizationManager.statusText()
+        themeButton.text = "THEME: ${customizationManager.selectedTheme.name}"
+        layoutButton.text = "LAYOUT: ${customizationManager.selectedLayout.name}"
+        val canEdit =
+            customizationManager.state != CustomizationSyncState.WAITING_FOR_SWITCH
+        themeButton.isEnabled = canEdit
+        layoutButton.isEnabled = canEdit
+        applyCustomizationButton.isEnabled = canEdit
     }
 
     private fun randomNonce(): String {

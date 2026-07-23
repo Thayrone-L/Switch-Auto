@@ -334,3 +334,22 @@ quando houver um modelo de segurança adequado.
 
 Preparar a arquitetura para crescer é diferente de implementar todas as
 funcionalidades desde o início.
+
+## 19. Distribuição de temas e layouts
+
+O Android Companion é a fonte de verdade para catálogos, favoritos e edição. O
+Switch conserva apenas o snapshot ativo necessário para iniciar sem o telefone e
+um tema padrão embutido para recuperação.
+
+Uma aplicação de personalização segue o fluxo:
+
+1. o Android gera um manifesto versionado com tema, layout e revisão;
+2. o Switch valida identificadores, schema e limites da grade;
+3. arquivos válidos são gravados primeiro em staging e depois promovidos;
+4. o Switch responde com a revisão efetivamente aplicada;
+5. o Android só apresenta a sincronização como concluída após essa confirmação.
+
+Falha de validação ou gravação preserva a última configuração válida. Falha ao
+carregá-la no startup ativa o tema e o layout padrão embutidos. A transferência
+futura de assets de tema seguirá o mesmo processo de staging, validação e
+confirmação.

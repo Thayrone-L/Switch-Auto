@@ -81,5 +81,18 @@ como payload binário do protocolo v3. O JSON transporta apenas metadados e limi
 cada quadro a 512 KiB. O estilo público `demotiles` é exclusivo do protótipo e
 deve ser substituído por um provedor de tiles apropriado antes de produção.
 
+## Personalização
+
+O Companion é a fonte de verdade para o catálogo de temas e layouts. A seção
+**Customize** permite escolher uma opção e aplicar a configuração ao Switch. Cada
+alteração recebe uma revisão; a interface permanece em sincronização até que o
+Switch valide, persista e confirme essa mesma revisão.
+
+Nesta primeira etapa existem os layouts `Automotive` e `Map Focus`, além do tema
+embutido `Switch Auto Dark`. O Switch mantém somente o manifesto ativo, o layout
+ativo e o tema padrão embutido como fallback. Catálogo de favoritos, editor
+visual e transferência dos arquivos de temas serão adicionados sobre o mesmo
+contrato versionado.
+
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

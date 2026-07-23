@@ -46,6 +46,7 @@ private:
     std::condition_variable waitCondition_;
     std::optional<SwitchDeviceIdentity> identity_;
     std::atomic<bool> hasTrustedCompanion_{false};
+    std::atomic<std::uint32_t> appliedCustomizationRevision_{0};
     EventQueue& events_;
     std::mutex handlerMutex_;
     StatusHandler statusHandler_;

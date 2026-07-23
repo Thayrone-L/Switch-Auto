@@ -5,6 +5,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <cstdio>
 #include <fcntl.h>
@@ -15,6 +16,8 @@
 #include <unistd.h>
 #include <borealis.hpp>
 #include <switch.h>
+
+#include "switch_auto/widget_layout.hpp"
 
 namespace switch_auto::platform::switch_platform {
 namespace {
@@ -42,6 +45,82 @@ constexpr const char* kDiagnosticDirectory =
     "sdmc:/switch/switch-auto/diagnostics";
 constexpr const char* kDiagnosticPath =
     "sdmc:/switch/switch-auto/diagnostics/latest.json";
+constexpr const char* kConfigDirectory = "sdmc:/switch/switch-auto/config";
+constexpr const char* kActiveCustomizationPath =
+    "sdmc:/switch/switch-auto/config/active-customization.json";
+constexpr const char* kActiveCustomizationTemporaryPath =
+    "sdmc:/switch/switch-auto/config/active-customization.json.tmp";
+constexpr const char* kWidgetLayoutPath =
+    "sdmc:/switch/switch-auto/config/widget-layout.json";
+constexpr const char* kWidgetLayoutTemporaryPath =
+    "sdmc:/switch/switch-auto/config/widget-layout.json.tmp";
+
+bool validIdentifier(std::string_view value) {
+    return !value.empty() && value.size() <= 64 &&
+        std::all_of(value.begin(), value.end(), [](char character) {
+            return std::isalnum(static_cast<unsigned char>(character)) ||
+                character == '-' || character == '_' || character == '.';
+        });
+}
+
+std::uint32_t loadAppliedCustomizationRevision() {
+    std::FILE* file = std::fopen(kActiveCustomizationPath, "rb");
+    if (!file) return 0;
+    char buffer[512]{};
+    const std::size_t count = std::fread(buffer, 1, sizeof(buffer) - 1, file);
+    std::fclose(file);
+    const char* revision = std::strstr(buffer, "\"revision\":");
+    if (!revision || count == 0) return 0;
+    unsigned int value = 0;
+    return std::sscanf(revision, "\"revision\":%u", &value) == 1 ? value : 0;
+}
+
+bool applyCustomization(const RemoteCustomization& customization) {
+    if (!validIdentifier(customization.themeId) ||
+        !validIdentifier(customization.layoutId) ||
+        customization.themeId != "default-dark") return false;
+    const auto layout = WidgetLayout::deserialize(customization.layoutJson);
+    if (!layout) return false;
+    ::mkdir(kConfigDirectory, 0700);
+
+    std::FILE* layoutFile = std::fopen(kWidgetLayoutTemporaryPath, "wb");
+    if (!layoutFile) return false;
+    const std::string normalizedLayout = layout->serialize();
+    const bool layoutWritten = std::fwrite(normalizedLayout.data(), 1,
+        normalizedLayout.size(), layoutFile) == normalizedLayout.size();
+    std::fflush(layoutFile);
+    std::fclose(layoutFile);
+    if (!layoutWritten) return false;
+
+    std::FILE* manifestFile =
+        std::fopen(kActiveCustomizationTemporaryPath, "wb");
+    if (!manifestFile) {
+        std::remove(kWidgetLayoutTemporaryPath);
+        return false;
+    }
+    const std::string manifest =
+        "{\"schemaVersion\":1,\"revision\":" +
+        std::to_string(customization.revision) + ",\"themeId\":\"" +
+        customization.themeId + "\",\"layoutId\":\"" +
+        customization.layoutId + "\"}\n";
+    const bool manifestWritten = std::fwrite(manifest.data(), 1,
+        manifest.size(), manifestFile) == manifest.size();
+    std::fflush(manifestFile);
+    std::fclose(manifestFile);
+    if (!manifestWritten) {
+        std::remove(kWidgetLayoutTemporaryPath);
+        return false;
+    }
+
+    std::remove(kWidgetLayoutPath);
+    if (std::rename(kWidgetLayoutTemporaryPath, kWidgetLayoutPath) != 0) {
+        std::remove(kActiveCustomizationTemporaryPath);
+        return false;
+    }
+    std::remove(kActiveCustomizationPath);
+    return std::rename(
+        kActiveCustomizationTemporaryPath, kActiveCustomizationPath) == 0;
+}
 
 bool saveTrustedCompanion() {
     std::FILE* file = std::fopen(kTrustedCompanionTemporaryPath, "wb");
@@ -306,6 +385,7 @@ std::optional<CompanionEndpoint> discoverCompanion(
 
 SwitchTcpCompanionService::SwitchTcpCompanionService(EventQueue& events)
     : events_(events) {
+    appliedCustomizationRevision_ = loadAppliedCustomizationRevision();
     auto identity = SwitchDeviceIdentity::loadOrCreate();
     if (identity) {
         identity_ = std::move(identity.value());
@@ -530,7 +610,12 @@ CompanionError SwitchTcpCompanionService::runSession(
                 R_SUCCEEDED(psmGetBatteryChargePercentage(&batteryPercent))
                 ? std::optional<int>(static_cast<int>(batteryPercent))
                 : std::nullopt;
-            const auto ping = session.heartbeat(localBattery);
+            const std::uint32_t customizationRevision =
+                appliedCustomizationRevision_.load();
+            const auto ping = session.heartbeat(localBattery,
+                customizationRevision > 0
+                    ? std::optional<std::uint32_t>(customizationRevision)
+                    : std::nullopt);
             if (!ping || !sendAll(socketFd, ping.value()) ||
                 !receiveLine(socketFd, response)) {
                 failure = ping ? socketFailure() : ping.error();
@@ -547,6 +632,25 @@ CompanionError SwitchTcpCompanionService::runSession(
                     const auto accepted = session.acceptBinaryPayload(
                         std::move(binaryPayload));
                     if (!accepted) failure = accepted.error();
+                }
+            }
+            if (failure == CompanionError::None) {
+                const auto customization =
+                    session.status().remoteCustomization;
+                if (customization &&
+                    customization->revision !=
+                        appliedCustomizationRevision_.load()) {
+                    if (applyCustomization(*customization)) {
+                        appliedCustomizationRevision_ = customization->revision;
+                        brls::Logger::info(
+                            "[session={}] Customization applied revision={} theme={} layout={}",
+                            sessionId, customization->revision,
+                            customization->themeId, customization->layoutId);
+                    } else {
+                        brls::Logger::error(
+                            "[session={}] Customization rejected revision={}",
+                            sessionId, customization->revision);
+                    }
                 }
             }
             publishSession();

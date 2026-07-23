@@ -55,6 +55,35 @@ std::optional<double> numberField(std::string_view json, std::string_view name) 
     return value;
 }
 
+std::optional<std::string> objectField(
+    std::string_view json, std::string_view name) {
+    const std::string key = "\"" + std::string(name) + "\"";
+    std::size_t position = json.find(key);
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find(':', position + key.size());
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find('{', position + 1);
+    if (position == std::string_view::npos) return std::nullopt;
+    std::size_t depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    for (std::size_t index = position; index < json.size(); ++index) {
+        const char value = json[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (value == '\\') escaped = true;
+            else if (value == '"') inString = false;
+            continue;
+        }
+        if (value == '"') inString = true;
+        else if (value == '{') ++depth;
+        else if (value == '}' && --depth == 0) {
+            return std::string(json.substr(position, index - position + 1));
+        }
+    }
+    return std::nullopt;
+}
+
 bool validPairingCode(std::string_view code) {
     return code.size() == 64 &&
         std::all_of(code.begin(), code.end(), [](char value) {
@@ -198,6 +227,21 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
         } else {
             status_.remoteMapFrame.reset();
         }
+        status_.remoteCustomization.reset();
+        if (const auto customization = objectField(line, "customization")) {
+            const auto schema = unsignedField(*customization, "schemaVersion");
+            const auto revision = unsignedField(*customization, "revision");
+            const auto themeId = stringField(*customization, "themeId");
+            const auto layoutId = stringField(*customization, "layoutId");
+            const auto layout = objectField(*customization, "layout");
+            if (!schema || *schema != 1 || !revision || *revision == 0 ||
+                !themeId || themeId->empty() || !layoutId || layoutId->empty() ||
+                !layout) {
+                return fail(CompanionError::InvalidMessage);
+            }
+            status_.remoteCustomization = RemoteCustomization{
+                *revision, *themeId, *layoutId, *layout};
+        }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
     }
@@ -225,7 +269,8 @@ Result<void, CompanionError> CompanionSession::acceptBinaryPayload(
 }
 
 Result<std::string, CompanionError> CompanionSession::heartbeat(
-    std::optional<int> localBatteryPercent) {
+    std::optional<int> localBatteryPercent,
+    std::optional<std::uint32_t> customizationRevision) {
     if (status_.state != CompanionConnectionState::Online || pendingSequence_) {
         return Result<std::string, CompanionError>::failure(CompanionError::NotOnline);
     }
@@ -234,9 +279,13 @@ Result<std::string, CompanionError> CompanionSession::heartbeat(
             *localBatteryPercent <= 100
         ? ",\"switchBatteryPercent\":" + std::to_string(*localBatteryPercent)
         : "";
+    const std::string customizationField =
+        customizationRevision && *customizationRevision > 0
+        ? ",\"customizationRevision\":" + std::to_string(*customizationRevision)
+        : "";
     return Result<std::string, CompanionError>::success(envelope(
         "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_) +
-        batteryField));
+        batteryField + customizationField));
 }
 
 void CompanionSession::transportDisconnected(CompanionError reason) {

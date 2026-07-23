@@ -64,6 +64,13 @@ struct RemoteMapFrame {
     std::vector<std::uint8_t> data;
 };
 
+struct RemoteCustomization {
+    std::uint32_t revision = 0;
+    std::string themeId;
+    std::string layoutId;
+    std::string layoutJson;
+};
+
 struct CompanionStatus {
     CompanionConnectionState state = CompanionConnectionState::Disconnected;
     CompanionError lastError = CompanionError::None;
@@ -72,6 +79,7 @@ struct CompanionStatus {
     std::optional<int> remoteBatteryPercent;
     std::optional<RemoteLocation> remoteLocation;
     std::optional<RemoteMapFrame> remoteMapFrame;
+    std::optional<RemoteCustomization> remoteCustomization;
     std::string sessionId;
     std::string endpointAddress;
     std::uint32_t retryAttempt = 0;
@@ -111,7 +119,9 @@ public:
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
     std::optional<std::size_t> pendingBinaryLength() const;
     Result<void, CompanionError> acceptBinaryPayload(std::vector<std::uint8_t> payload);
-    Result<std::string, CompanionError> heartbeat(std::optional<int> localBatteryPercent = std::nullopt);
+    Result<std::string, CompanionError> heartbeat(
+        std::optional<int> localBatteryPercent = std::nullopt,
+        std::optional<std::uint32_t> customizationRevision = std::nullopt);
     void transportConnected();
     void transportDisconnected(CompanionError reason);
     void reset();
