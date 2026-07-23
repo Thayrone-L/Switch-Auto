@@ -21,10 +21,12 @@ add_subdirectory(extern/borealis/library)
 set(SWITCH_AUTO_SOURCES
     apps/ui/source/connection_view.cpp
     apps/ui/source/dashboard_view.cpp
+    apps/ui/source/localization_adapter.cpp
     apps/ui/source/main.cpp
     apps/ui/source/qr_code_view.cpp
     core/source/companion.cpp
     core/source/crypto.cpp
+    core/source/localization.cpp
     extern/qrcodegen/qrcodegen.cpp
 )
 

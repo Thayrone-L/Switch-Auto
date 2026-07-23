@@ -3,6 +3,7 @@
 #include "switch_auto/widget.hpp"
 #include "switch_auto/service_registry.hpp"
 #include "switch_auto/event_queue.hpp"
+#include "switch_auto/localization.hpp"
 
 namespace switch_auto {
 
@@ -19,7 +20,7 @@ enum class ApplicationLifecycle {
 
 class Application {
 public:
-    explicit Application(RuntimeService& runtime);
+    Application(RuntimeService& runtime, LocalizationService& localization);
 
     bool initialize();
     void update(float deltaSeconds);
@@ -30,6 +31,7 @@ public:
 
 private:
     RuntimeService& runtime_;
+    LocalizationService& localization_;
     WidgetRegistry registry_;
     ServiceRegistry services_;
     AppState appState_;

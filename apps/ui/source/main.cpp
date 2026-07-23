@@ -10,6 +10,7 @@
 #include "connection_view.hpp"
 #include "dashboard_view.hpp"
 #include "qr_code_view.hpp"
+#include "localization_adapter.hpp"
 #include "switch_auto/event_queue.hpp"
 
 #ifdef __SWITCH__
@@ -123,6 +124,9 @@ int main(int argc, char** argv) {
 
     switch_auto::MutableRuntimeService runtime;
     switch_auto::EventQueue events;
+    switch_auto::ui::BorealisLocalizationService localization;
+    localization.setLocale(brls::Application::getLocale());
+    switch_auto::ui::setLocalizationService(&localization);
     std::unique_ptr<switch_auto::CompanionService> companion;
 #ifdef __SWITCH__
     // Borealis' switch_wrapper owns socket/PSM initialization and shutdown.
@@ -174,5 +178,6 @@ int main(int argc, char** argv) {
         brls::Logger::setLogOutput(nullptr);
         std::fclose(diagnosticLog);
     }
+    switch_auto::ui::setLocalizationService(nullptr);
     return 0;
 }

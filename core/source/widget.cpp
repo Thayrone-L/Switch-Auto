@@ -1,4 +1,5 @@
 #include "switch_auto/widget.hpp"
+#include "switch_auto/localization.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -75,14 +76,19 @@ class RuntimeWidget : public Widget {
 public:
     bool initialize(const WidgetContext& context) override {
         runtime_ = &context.runtime;
-        return true;
+        localization_ = context.services.find<LocalizationService>();
+        return localization_ != nullptr;
     }
     void update(float) override {}
-    void dispose() override { runtime_ = nullptr; }
+    void dispose() override { runtime_ = nullptr; localization_ = nullptr; }
 
 protected:
     const RuntimeState& state() const { return runtime_->current(); }
+    std::string tr(std::string_view key) const {
+        return localization_->translate(key);
+    }
     RuntimeService* runtime_ = nullptr;
+    LocalizationService* localization_ = nullptr;
 };
 
 class ClockWidget final : public RuntimeWidget {
@@ -126,17 +132,17 @@ public:
     void render(Canvas& canvas) const override {
         canvas.fillRect(48, 166, 742, 482, {22, 28, 39});
         canvas.strokeRect(48, 166, 742, 482, 2, {48, 59, 76});
-        canvas.text(82, 202, "DRIVE", 3, {102, 117, 140});
+        canvas.text(82, 202, tr("core/drive/title"), 3, {102, 117, 140});
 
         char speed[8];
         std::snprintf(speed, sizeof(speed), "%d", state().speedKph);
         canvas.text(102, 302, speed, 13, {238, 241, 246});
-        canvas.text(112, 410, "KM/H", 3, {102, 117, 140});
+        canvas.text(112, 410, tr("core/drive/speed_unit"), 3, {102, 117, 140});
 
         canvas.fillRect(410, 246, 2, 300, {48, 59, 76});
-        canvas.text(462, 282, "NEXT TURN", 2, {102, 117, 140});
-        canvas.text(462, 334, "ROUTE OFFLINE", 4, {238, 241, 246});
-        canvas.text(462, 408, "CONNECT ANDROID", 2, {239, 83, 80});
+        canvas.text(462, 282, tr("core/drive/next_turn"), 2, {102, 117, 140});
+        canvas.text(462, 334, tr("core/drive/route_offline"), 4, {238, 241, 246});
+        canvas.text(462, 408, tr("core/drive/connect_android"), 2, {239, 83, 80});
     }
 };
 
@@ -146,15 +152,16 @@ public:
     void render(Canvas& canvas) const override {
         canvas.fillRect(822, 166, 410, 482, {22, 28, 39});
         canvas.strokeRect(822, 166, 410, 482, 2, {48, 59, 76});
-        canvas.text(856, 202, "NOW PLAYING", 3, {102, 117, 140});
+        canvas.text(856, 202, tr("core/media/now_playing"), 3, {102, 117, 140});
         canvas.fillRect(856, 270, 342, 150, {31, 39, 53});
-        canvas.text(886, 326, state().companionConnected ? "ANDROID" : "OFFLINE", 5,
+        canvas.text(886, 326, state().companionConnected
+                    ? tr("core/media/android") : tr("core/media/offline"), 5,
                     state().companionConnected ? Color{49, 209, 139} : Color{102, 117, 140});
         canvas.text(856, 462, state().track, 3, {238, 241, 246});
         canvas.text(856, 508, state().artist, 2, {102, 117, 140});
-        canvas.text(884, 580, "PREV", 2, {160, 170, 188});
-        canvas.text(1000, 580, "PLAY", 2, {238, 241, 246});
-        canvas.text(1110, 580, "NEXT", 2, {160, 170, 188});
+        canvas.text(884, 580, tr("core/media/previous"), 2, {160, 170, 188});
+        canvas.text(1000, 580, tr("core/media/play"), 2, {238, 241, 246});
+        canvas.text(1110, 580, tr("core/media/next"), 2, {160, 170, 188});
     }
 };
 

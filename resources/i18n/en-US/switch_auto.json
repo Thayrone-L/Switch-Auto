@@ -38,5 +38,24 @@
     "media": {
         "no_media": "NO MEDIA",
         "companion_offline": "ANDROID COMPANION OFFLINE"
+    },
+    "core": {
+        "title": "SWITCH AUTO",
+        "subtitle": "DEVELOPMENT CORE",
+        "drive": {
+            "title": "DRIVE",
+            "speed_unit": "KM/H",
+            "next_turn": "NEXT TURN",
+            "route_offline": "ROUTE OFFLINE",
+            "connect_android": "CONNECT ANDROID"
+        },
+        "media": {
+            "now_playing": "NOW PLAYING",
+            "android": "ANDROID",
+            "offline": "OFFLINE",
+            "previous": "PREV",
+            "play": "PLAY",
+            "next": "NEXT"
+        }
     }
 }

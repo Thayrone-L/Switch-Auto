@@ -2,12 +2,18 @@
 
 namespace switch_auto {
 
-Application::Application(RuntimeService& runtime) : runtime_(runtime) {}
+Application::Application(
+    RuntimeService& runtime, LocalizationService& localization)
+    : runtime_(runtime), localization_(localization) {}
 
 bool Application::initialize() {
     if (lifecycle_ != ApplicationLifecycle::Created) return false;
     lifecycle_ = ApplicationLifecycle::InitializingServices;
     if (!services_.registerService<RuntimeService>(runtime_)) {
+        lifecycle_ = ApplicationLifecycle::Failed;
+        return false;
+    }
+    if (!services_.registerService<LocalizationService>(localization_)) {
         lifecycle_ = ApplicationLifecycle::Failed;
         return false;
     }
@@ -40,8 +46,8 @@ void Application::render(Canvas& canvas) const {
     canvas.clear({13, 17, 24});
     canvas.fillRect(0, 0, kLogicalWidth, 136, {17, 22, 31});
     canvas.fillRect(0, 134, kLogicalWidth, 2, {230, 0, 18});
-    canvas.text(48, 38, "SWITCH AUTO", 6, {238, 241, 246});
-    canvas.text(50, 96, "DEVELOPMENT CORE", 2, {230, 0, 18});
+    canvas.text(48, 38, localization_.translate("core/title"), 6, {238, 241, 246});
+    canvas.text(50, 96, localization_.translate("core/subtitle"), 2, {230, 0, 18});
     registry_.renderAll(canvas);
 }
 

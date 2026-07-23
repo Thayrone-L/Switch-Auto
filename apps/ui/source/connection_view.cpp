@@ -1,4 +1,5 @@
 #include "connection_view.hpp"
+#include "localization_adapter.hpp"
 
 namespace switch_auto::ui {
 
@@ -10,30 +11,30 @@ namespace {
 std::string statusText(const CompanionStatus& status) {
     switch (status.state) {
         case CompanionConnectionState::Discovering:
-            return "switch_auto/status/discovering"_i18n;
+            return tr("switch_auto/status/discovering");
         case CompanionConnectionState::Connecting:
-            return "switch_auto/status/connecting"_i18n;
+            return tr("switch_auto/status/connecting");
         case CompanionConnectionState::Pairing:
-            return "switch_auto/status/pairing"_i18n;
+            return tr("switch_auto/status/pairing");
         case CompanionConnectionState::Authenticating:
-            return "switch_auto/status/authenticating"_i18n;
+            return tr("switch_auto/status/authenticating");
         case CompanionConnectionState::Handshaking:
-            return "switch_auto/status/handshaking"_i18n;
+            return tr("switch_auto/status/handshaking");
         case CompanionConnectionState::Online:
-            return "switch_auto/status/connected"_i18n;
+            return tr("switch_auto/status/connected");
         case CompanionConnectionState::Reconnecting:
             return brls::getStr("switch_auto/status/retrying",
                 status.retryDelaySeconds, status.retryAttempt);
         case CompanionConnectionState::Failed:
             if (status.lastError == CompanionError::DiscoveryTimeout) {
-                return "switch_auto/connection/not_found"_i18n;
+                return tr("switch_auto/connection/not_found");
             }
             return brls::getStr(
                 "switch_auto/connection/error", toString(status.lastError));
         case CompanionConnectionState::Disconnected:
-            return "switch_auto/connection/ready"_i18n;
+            return tr("switch_auto/connection/ready");
     }
-    return "switch_auto/status/offline"_i18n;
+    return tr("switch_auto/status/offline");
 }
 
 }  // namespace
@@ -46,8 +47,8 @@ ConnectionView::ConnectionView(CompanionService& companion) : companion_(compani
     const auto pairing = companion_.pairingInfo();
     deviceIdLabel_->setText(pairing ? pairing->deviceId : "-");
     qrCode_->setPayload(pairing ? pairing->qrPayload : "");
-    connectButton_->setText("switch_auto/connection/connect"_i18n);
-    offlineButton_->setText("switch_auto/connection/offline"_i18n);
+    connectButton_->setText(tr("switch_auto/connection/connect"));
+    offlineButton_->setText(tr("switch_auto/connection/offline"));
     connectButton_->registerClickAction([this](brls::View*) {
         connect();
         return true;

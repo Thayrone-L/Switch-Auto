@@ -38,5 +38,24 @@
     "media": {
         "no_media": "SEM MÍDIA",
         "companion_offline": "COMPANION ANDROID OFFLINE"
+    },
+    "core": {
+        "title": "SWITCH AUTO",
+        "subtitle": "NÚCLEO DE DESENVOLVIMENTO",
+        "drive": {
+            "title": "DIREÇÃO",
+            "speed_unit": "KM/H",
+            "next_turn": "PRÓXIMA CONVERSÃO",
+            "route_offline": "ROTA OFFLINE",
+            "connect_android": "CONECTE O ANDROID"
+        },
+        "media": {
+            "now_playing": "TOCANDO AGORA",
+            "android": "ANDROID",
+            "offline": "OFFLINE",
+            "previous": "ANT.",
+            "play": "TOCAR",
+            "next": "PRÓX."
+        }
     }
 }

@@ -1,6 +1,7 @@
 #include "dashboard_view.hpp"
 
 #include "connection_view.hpp"
+#include "localization_adapter.hpp"
 
 #include <cstdio>
 #include <ctime>
@@ -104,49 +105,49 @@ void DashboardView::refresh() {
 
     std::snprintf(buffer, sizeof(buffer), "%d", state.speedKph);
     speedLabel_->setText(buffer);
-    speedUnitLabel_->setText("switch_auto/dashboard/speed_unit"_i18n);
+    speedUnitLabel_->setText(tr("switch_auto/dashboard/speed_unit"));
     switch (connectionState) {
         case CompanionConnectionState::Discovering:
-            connectionLabel_->setText("switch_auto/status/discovering"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/discovering"));
             break;
         case CompanionConnectionState::Connecting:
-            connectionLabel_->setText("switch_auto/status/connecting"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/connecting"));
             break;
         case CompanionConnectionState::Pairing:
-            connectionLabel_->setText("switch_auto/status/pairing"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/pairing"));
             break;
         case CompanionConnectionState::Authenticating:
-            connectionLabel_->setText("switch_auto/status/authenticating"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/authenticating"));
             break;
         case CompanionConnectionState::Handshaking:
-            connectionLabel_->setText("switch_auto/status/handshaking"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/handshaking"));
             break;
         case CompanionConnectionState::Online:
-            connectionLabel_->setText("switch_auto/status/connected"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/connected"));
             break;
         case CompanionConnectionState::Reconnecting:
             connectionLabel_->setText(brls::getStr("switch_auto/status/retrying",
                 companionStatus_.retryDelaySeconds, companionStatus_.retryAttempt));
             break;
         case CompanionConnectionState::Failed:
-            connectionLabel_->setText("switch_auto/status/failed"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/failed"));
             break;
         case CompanionConnectionState::Disconnected:
-            connectionLabel_->setText("switch_auto/status/offline"_i18n);
+            connectionLabel_->setText(tr("switch_auto/status/offline"));
             break;
     }
     connectionButton_->setText(
-        state.companionConnected ? "switch_auto/connection/connected"_i18n
-                                 : "switch_auto/connection/open"_i18n);
+        state.companionConnected ? tr("switch_auto/connection/connected")
+                                 : tr("switch_auto/connection/open"));
     connectionButton_->setState(
         state.companionConnected ? brls::ButtonState::DISABLED
                                  : brls::ButtonState::ENABLED);
     trackLabel_->setText(state.companionConnected
                              ? state.track
-                             : "switch_auto/media/no_media"_i18n);
+                             : tr("switch_auto/media/no_media"));
     artistLabel_->setText(state.companionConnected
                               ? state.artist
-                              : "switch_auto/media/companion_offline"_i18n);
+                              : tr("switch_auto/media/companion_offline"));
 }
 
 }  // namespace switch_auto::ui

@@ -188,6 +188,13 @@ idioma escolhido → en-US → chave de tradução visível
 
 Logs técnicos e identificadores de erro não passam pelo sistema de tradução.
 
+O Core expõe `LocalizationService`; widgets recebem essa capacidade pelo
+`ServiceRegistry` e não conhecem a biblioteca de UI. A aplicação Borealis usa um
+adaptador desse contrato. `CatalogLocalizationService` mantém catálogos
+independentes e aplica o fallback sem lançar exceções. Os JSON empacotados são
+validados antes da build quanto a sintaxe, valores vazios e paridade de chaves
+com `en-US`.
+
 ## 11. Companion
 
 O Android Companion integra o Switch Auto com capacidades externas e do telefone.

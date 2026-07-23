@@ -6,6 +6,7 @@
 #include "switch_auto/application.hpp"
 #include "switch_auto/companion.hpp"
 #include "switch_auto/event_queue.hpp"
+#include "switch_auto/localization.hpp"
 #include "switch_auto/crypto.hpp"
 #include "switch_auto/service_registry.hpp"
 #include "switch_auto/widget.hpp"
@@ -137,11 +138,31 @@ int main() {
     smallCanvas.fillRect(-2, -2, 3, 3, {10, 20, 30, 255});
     assert(smallPixels[0] == 0xff1e140aU);
     assert(smallPixels[1] == 0xff030201U);
+    smallCanvas.fillRect(10, 10, 2, 2, {255, 0, 0, 255});
+    assert(smallPixels[15] == 0xff030201U);
 
     static std::array<std::uint32_t, kLogicalWidth * kLogicalHeight> frame{};
     MutableRuntimeService runtime;
+    CatalogLocalizationService localization;
+    assert(localization.addCatalog("en-US", {
+        {"status.connected", "CONNECTED"},
+        {"status.offline", "OFFLINE"},
+    }));
+    assert(localization.addCatalog("pt-BR", {
+        {"status.connected", "CONECTADO"},
+    }));
+    assert(!localization.addCatalog("", {{"key", "value"}}));
+    assert(!localization.addCatalog("invalid", {{"", "value"}}));
+    assert(localization.setLocale("pt-BR"));
+    assert(localization.translate("status.connected") == "CONECTADO");
+    assert(localization.translate("status.offline") == "OFFLINE");
+    assert(localization.translate("missing.key") == "missing.key");
+    assert(!localization.setLocale("es-ES"));
+    assert(localization.locale() == "pt-BR");
+
     ServiceRegistry services;
     assert(services.registerService<RuntimeService>(runtime));
+    assert(services.registerService<LocalizationService>(localization));
     assert(!services.registerService<RuntimeService>(runtime));
     assert(&services.require<RuntimeService>() == &runtime);
 
@@ -162,7 +183,7 @@ int main() {
     widgetRegistry.disposeAll();
     assert(widgetRegistry.lifecycle("core.battery") == WidgetLifecycle::Disposed);
 
-    Application application(runtime);
+    Application application(runtime, localization);
     assert(application.lifecycle() == ApplicationLifecycle::Created);
     assert(application.initialize());
     assert(application.lifecycle() == ApplicationLifecycle::Running);

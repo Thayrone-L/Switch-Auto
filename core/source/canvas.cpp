@@ -79,6 +79,7 @@ void Canvas::fillRect(int x, int y, int width, int height, Color color) {
     const int top = std::max(0, y);
     const int right = std::min(width_, x + width);
     const int bottom = std::min(height_, y + height);
+    if (right <= left || bottom <= top) return;
     const std::uint32_t packed = pack(color);
     for (int row = top; row < bottom; ++row) {
         std::fill(pixels_ + row * stridePixels_ + left,

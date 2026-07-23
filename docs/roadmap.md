@@ -28,7 +28,10 @@
 - [x] Companion Android inicia o servidor em todo startup;
 - [x] revogação de credenciais e encerramento de sessões ativas;
 - [x] estado de pareamento versionado com migração e fallback de corrupção;
-- carregar tema padrão e traduções `en-US`/`pt-BR`;
+- [x] carregar traduções `en-US`/`pt-BR` por `LocalizationService`;
+- [x] fallback de tradução `locale escolhido → en-US → chave`;
+- [x] validar integridade e paridade dos catálogos;
+- carregar tema padrão;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;
 - [x] transporte TCP assíncrono com heartbeat e reconexão;

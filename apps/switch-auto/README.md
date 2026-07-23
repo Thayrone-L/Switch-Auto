@@ -31,3 +31,8 @@ Logs de conexão possuem `sessionId`, e o último relatório versionado fica em
 `/switch/switch-auto/diagnostics/latest.json`. A identidade persistida é migrada
 para `identity/device.identity`; arquivos inválidos são preservados com sufixo
 `.corrupt` antes da recuperação.
+
+Textos do Core e da UI passam por `LocalizationService`, implementado no NRO por
+um adaptador Borealis. Os catálogos `en-US` e `pt-BR` são empacotados no RomFS;
+ausências usam `en-US` e, por último, exibem a própria chave para tornar o erro
+diagnosticável.
