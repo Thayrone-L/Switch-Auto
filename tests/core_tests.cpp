@@ -108,12 +108,23 @@ int main() {
     assert(session.status().remoteMapFrame->id == 7);
     assert(session.status().remoteMapFrame->data.size() == 4);
 
+    const auto degradedMapPing = session.heartbeat();
+    assert(degradedMapPing);
+    const auto degradedMapPong = session.receive(
+        R"({"version":3,"type":"pong","sequence":4,"mapFrame":{"id":8,"contentType":"unexpected","length":4,"width":0,"height":0},"customization":{"schemaVersion":99}})");
+    assert(degradedMapPong);
+    assert(session.pendingBinaryLength() == 4);
+    assert(session.acceptBinaryPayload({0xff, 0xd8, 0xff, 0xd9}));
+    assert(session.status().remoteMapFrame.has_value());
+    assert(session.status().remoteMapFrame->width == 640);
+    assert(!session.status().remoteCustomization.has_value());
+
     const auto customizationPing = session.heartbeat(std::nullopt, 6);
     assert(customizationPing);
     assert(customizationPing.value().find("\"customizationRevision\":6") !=
         std::string::npos);
     const auto customizationPong = session.receive(
-        R"({"version":3,"type":"pong","sequence":4,"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
+        R"({"version":3,"type":"pong","sequence":5,"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
     assert(customizationPong);
     assert(session.status().remoteCustomization.has_value());
     assert(session.status().remoteCustomization->revision == 7);

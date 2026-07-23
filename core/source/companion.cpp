@@ -215,15 +215,21 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
             const auto width = unsignedField(*mapFrame, "width");
             const auto height = unsignedField(*mapFrame, "height");
             const auto contentType = stringField(*mapFrame, "contentType");
-            if (!id || !length || !width || !height || !contentType ||
-                *length == 0 || *length > kMaximumMapFrameSize ||
-                *width == 0 || *width > 1280 || *height == 0 || *height > 720 ||
-                *contentType != "image/jpeg") {
+            if (!length || *length > kMaximumMapFrameSize) {
                 return fail(CompanionError::InvalidMessage);
             }
-            pendingMapFrame_ = RemoteMapFrame{
-                *id, *width, *height, *contentType, {}};
-            pendingBinaryLength_ = *length;
+            if (*length > 0) {
+                pendingMapFrame_ = RemoteMapFrame{
+                    id.value_or(0),
+                    width && *width > 0 && *width <= 1280 ? *width : 640,
+                    height && *height > 0 && *height <= 720 ? *height : 360,
+                    contentType && *contentType == "image/jpeg"
+                        ? *contentType : "image/jpeg",
+                    {}};
+                pendingBinaryLength_ = *length;
+            } else {
+                status_.remoteMapFrame.reset();
+            }
         } else {
             status_.remoteMapFrame.reset();
         }
@@ -234,13 +240,12 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
             const auto themeId = stringField(*customization, "themeId");
             const auto layoutId = stringField(*customization, "layoutId");
             const auto layout = objectField(*customization, "layout");
-            if (!schema || *schema != 1 || !revision || *revision == 0 ||
-                !themeId || themeId->empty() || !layoutId || layoutId->empty() ||
-                !layout) {
-                return fail(CompanionError::InvalidMessage);
+            if (schema && *schema == 1 && revision && *revision > 0 &&
+                themeId && !themeId->empty() && layoutId && !layoutId->empty() &&
+                layout) {
+                status_.remoteCustomization = RemoteCustomization{
+                    *revision, *themeId, *layoutId, *layout};
             }
-            status_.remoteCustomization = RemoteCustomization{
-                *revision, *themeId, *layoutId, *layout};
         }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
