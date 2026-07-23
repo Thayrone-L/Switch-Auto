@@ -33,12 +33,13 @@ private:
     CompanionError runSession(const CompanionEndpoint& endpoint,
         const std::string& pairingToken);
     void publish(const CompanionStatus& status);
-    bool waitForRetry(std::chrono::seconds delay);
+    bool waitForRetry(std::chrono::milliseconds delay);
 
     mutable std::mutex statusMutex_;
     CompanionStatus status_;
     std::thread worker_;
     std::atomic<bool> stopRequested_{false};
+    std::atomic<int> activeSocket_{-1};
     std::mutex waitMutex_;
     std::condition_variable waitCondition_;
     std::optional<SwitchDeviceIdentity> identity_;

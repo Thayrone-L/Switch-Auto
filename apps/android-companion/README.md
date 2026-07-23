@@ -37,6 +37,10 @@ pareamento; dispositivos desconhecidos continuam sendo rejeitados.
 O botão **Forget paired Switch** revoga todas as credenciais conhecidas e encerra
 as sessões ativas. Um novo QR precisa ser lido para permitir outra conexão.
 
+As sessões possuem timeout de I/O de 8 segundos. As esperas de clientes e
+descoberta são verificadas a cada segundo para que parar o servidor ou fechar o
+aplicativo cancele o transporte rapidamente.
+
 O log do Android fica no diretório externo privado do aplicativo, no arquivo
 `switch-auto.log`. O arquivo é rotacionado ao atingir 1 MiB e nunca registra o
 token de pareamento.

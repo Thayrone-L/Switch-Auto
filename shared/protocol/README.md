@@ -35,11 +35,17 @@ O Core representa esse fluxo em `CompanionSession`, uma máquina de estados sem
 dependências de socket ou plataforma. O transporte específico do Switch deve
 implementar `CompanionService` e alimentar a sessão com mensagens completas.
 
-A implementação atual do Switch usa uma thread de background, timeout de 10
-segundos e heartbeat a cada 5 segundos. Após uma queda, volta à descoberta para
-aceitar mudanças de IP e usa backoff de 1, 2, 4, 8 e no máximo 16 segundos.
-Todas as esperas são canceláveis e nenhuma operação de rede bloqueia a thread da
-interface Borealis.
+A implementação atual do Switch usa uma thread de background e heartbeat a cada
+5 segundos. Conexão, leitura e escrita têm limite de 8 segundos; a tentativa de
+conexão é não bloqueante e verifica cancelamento a cada 100 ms. Após uma queda,
+o Switch volta à descoberta para aceitar mudanças de IP e usa backoff
+exponencial de 1, 2, 4, 8 e no máximo 16 segundos, com jitter de ±20%.
+
+No Android, `accept` e descoberta verificam cancelamento a cada 1 segundo e
+sessões TCP usam o mesmo timeout de I/O de 8 segundos. Parar o servidor, fechar
+o app ou revogar credenciais fecha os sockets ativos. Todas as esperas de
+reconexão são acordadas imediatamente pelo cancelamento e nenhuma operação de
+rede bloqueia a thread da interface.
 
 Exemplos concretos estão em [`examples/`](examples/). O Companion persiste a
 associação entre `deviceId` e token depois da leitura do QR. Credenciais, provas e

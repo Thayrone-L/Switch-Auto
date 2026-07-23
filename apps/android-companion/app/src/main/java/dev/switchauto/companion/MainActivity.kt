@@ -29,6 +29,7 @@ import java.net.DatagramSocket
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.UUID
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -46,6 +47,9 @@ private const val PROTOCOL_VERSION = 2
 private const val SERVER_PORT = 38471
 private const val DISCOVERY_PORT = 38472
 private const val SETTINGS_SCHEMA_VERSION = 1
+private const val ACCEPT_POLL_TIMEOUT_MS = 1_000
+private const val SESSION_IO_TIMEOUT_MS = 8_000
+private const val DISCOVERY_POLL_TIMEOUT_MS = 1_000
 
 class MainActivity : Activity() {
     private val executor: ExecutorService = Executors.newCachedThreadPool()
@@ -151,14 +155,19 @@ class MainActivity : Activity() {
         executor.execute {
             try {
                 ServerSocket(SERVER_PORT).use { server ->
+                    server.soTimeout = ACCEPT_POLL_TIMEOUT_MS
                     serverSocket = server
                     runOnUiThread {
                         statusView.text = "Listening on port $SERVER_PORT"
                         appendLog("Companion server ready")
                     }
                     while (running.get()) {
-                        val client = server.accept()
-                        executor.execute { handleClient(client) }
+                        try {
+                            val client = server.accept()
+                            executor.execute { handleClient(client) }
+                        } catch (_: SocketTimeoutException) {
+                            // Poll running so shutdown never depends on a new client.
+                        }
                     }
                 }
             } catch (error: Exception) {
@@ -196,7 +205,7 @@ class MainActivity : Activity() {
         appendLog("Client connected: $remote")
         try {
             socket.use { client ->
-                client.soTimeout = 15_000
+                client.soTimeout = SESSION_IO_TIMEOUT_MS
                 val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
                 val writer = BufferedWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8))
                 var paired = false
@@ -291,8 +300,10 @@ class MainActivity : Activity() {
                     }
                 }
             }
+        } catch (_: SocketTimeoutException) {
+            if (running.get()) appendLog("Client timed out after ${SESSION_IO_TIMEOUT_MS}ms: $remote")
         } catch (error: Exception) {
-            appendLog("Client error: ${error.message}")
+            if (running.get()) appendLog("Client error: ${error.message}")
         }
         appendLog("Client disconnected: $remote")
         activeClients.remove(socket)
@@ -316,10 +327,15 @@ class MainActivity : Activity() {
             DatagramSocket(DISCOVERY_PORT).use { socket ->
                 discoverySocket = socket
                 socket.broadcast = true
+                socket.soTimeout = DISCOVERY_POLL_TIMEOUT_MS
                 val buffer = ByteArray(1024)
                 while (running.get()) {
                     val request = DatagramPacket(buffer, buffer.size)
-                    socket.receive(request)
+                    try {
+                        socket.receive(request)
+                    } catch (_: SocketTimeoutException) {
+                        continue
+                    }
                     val payload = String(request.data, 0, request.length, Charsets.UTF_8)
                     val json = try { JSONObject(payload.trim()) } catch (_: Exception) { continue }
                     if (json.optInt("version") != PROTOCOL_VERSION ||

@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cstring>
 #include <cstdio>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <borealis.hpp>
@@ -16,12 +18,15 @@
 namespace switch_auto::platform::switch_platform {
 namespace {
 
-constexpr int kSocketTimeoutSeconds = 10;
+constexpr int kSocketTimeoutSeconds = 8;
+constexpr auto kConnectTimeout = std::chrono::seconds(8);
+constexpr auto kConnectPollInterval = std::chrono::milliseconds(100);
 constexpr std::uint16_t kDiscoveryPort = 38472;
 constexpr int kDiscoveryAttempts = 4;
 constexpr int kDiscoveryTimeoutSeconds = 1;
 constexpr auto kMinimumReconnectDelay = std::chrono::seconds(1);
 constexpr auto kMaximumReconnectDelay = std::chrono::seconds(16);
+constexpr int kBackoffJitterPercent = 20;
 constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
 constexpr std::size_t kMaximumMessageSize = 4096;
 constexpr const char* kTrustedCompanionPath =
@@ -90,24 +95,84 @@ bool receiveLine(int socketFd, std::string& output) {
     return false;
 }
 
-int openSocket(const CompanionEndpoint& endpoint) {
+int openSocket(const CompanionEndpoint& endpoint,
+    const std::atomic<bool>& stopRequested, CompanionError& failure) {
+    failure = CompanionError::TransportUnavailable;
     const int socketFd = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socketFd < 0) return -1;
+
+    const int originalFlags = ::fcntl(socketFd, F_GETFL, 0);
+    if (originalFlags < 0 ||
+        ::fcntl(socketFd, F_SETFL, originalFlags | O_NONBLOCK) < 0) {
+        ::close(socketFd);
+        return -1;
+    }
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(endpoint.port);
+    if (::inet_pton(AF_INET, endpoint.address.c_str(), &address.sin_addr) != 1) {
+        ::close(socketFd);
+        return -1;
+    }
+    if (::connect(socketFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0 &&
+        errno != EINPROGRESS) {
+        ::close(socketFd);
+        return -1;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + kConnectTimeout;
+    bool connected = false;
+    while (!stopRequested && std::chrono::steady_clock::now() < deadline) {
+        pollfd descriptor{socketFd, POLLOUT, 0};
+        const int result = ::poll(&descriptor, 1,
+            static_cast<int>(kConnectPollInterval.count()));
+        if (result < 0 && errno != EINTR) break;
+        if (result > 0) {
+            int socketError = 0;
+            socklen_t errorLength = sizeof(socketError);
+            if (::getsockopt(socketFd, SOL_SOCKET, SO_ERROR, &socketError,
+                    &errorLength) == 0 && socketError == 0) {
+                connected = true;
+            } else {
+                errno = socketError;
+            }
+            break;
+        }
+    }
+    if (!connected && !stopRequested &&
+        std::chrono::steady_clock::now() >= deadline) {
+        failure = CompanionError::ConnectionTimeout;
+    }
+    if (!connected || stopRequested ||
+        ::fcntl(socketFd, F_SETFL, originalFlags) < 0) {
+        ::close(socketFd);
+        return -1;
+    }
 
     timeval timeout{};
     timeout.tv_sec = kSocketTimeoutSeconds;
     ::setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     ::setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_port = htons(endpoint.port);
-    if (::inet_pton(AF_INET, endpoint.address.c_str(), &address.sin_addr) != 1 ||
-        ::connect(socketFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        ::close(socketFd);
-        return -1;
-    }
     return socketFd;
+}
+
+CompanionError socketFailure() {
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT
+        ? CompanionError::ConnectionTimeout
+        : CompanionError::ConnectionClosed;
+}
+
+std::chrono::milliseconds reconnectDelay(
+    std::chrono::seconds base, std::uint32_t attempt) {
+    // Stable per-attempt jitter avoids synchronized reconnect storms without
+    // requiring another platform RNG initialization.
+    const int span = static_cast<int>(base.count() * 1000) *
+        kBackoffJitterPercent / 100;
+    const std::uint32_t mixed = attempt * 1103515245U + 12345U;
+    const int offset = span == 0 ? 0 :
+        static_cast<int>(mixed % static_cast<std::uint32_t>(span * 2 + 1)) - span;
+    return std::chrono::milliseconds(base.count() * 1000 + offset);
 }
 
 bool permanentProtocolError(CompanionError error) {
@@ -265,6 +330,8 @@ Result<void, CompanionError> SwitchTcpCompanionService::connect(
 void SwitchTcpCompanionService::disconnect() {
     stopRequested_ = true;
     waitCondition_.notify_all();
+    const int socketFd = activeSocket_.load();
+    if (socketFd >= 0) ::shutdown(socketFd, SHUT_RDWR);
     if (worker_.joinable()) worker_.join();
     brls::Logger::info("Companion transport: disconnected");
     publish({});
@@ -315,11 +382,13 @@ void SwitchTcpCompanionService::runAutomatic() {
         reconnecting.state = CompanionConnectionState::Reconnecting;
         reconnecting.lastError = failure;
         reconnecting.retryAttempt = retryAttempt;
-        reconnecting.retryDelaySeconds = static_cast<std::uint32_t>(delay.count());
+        const auto actualDelay = reconnectDelay(delay, retryAttempt);
+        reconnecting.retryDelaySeconds = static_cast<std::uint32_t>(
+            (actualDelay.count() + 999) / 1000);
         publish(reconnecting);
-        brls::Logger::info("Companion reconnect: attempt={} delay={}s reason={}",
-            retryAttempt, delay.count(), toString(failure));
-        if (!waitForRetry(delay)) return;
+        brls::Logger::info("Companion reconnect: attempt={} delay={}ms reason={}",
+            retryAttempt, actualDelay.count(), toString(failure));
+        if (!waitForRetry(actualDelay)) return;
         delay = std::min(delay * 2, kMaximumReconnectDelay);
     }
 }
@@ -327,10 +396,11 @@ void SwitchTcpCompanionService::runAutomatic() {
 void SwitchTcpCompanionService::runManual(
     CompanionEndpoint endpoint, std::string pairingToken) {
     auto delay = kMinimumReconnectDelay;
+    std::uint32_t retryAttempt = 0;
     while (!stopRequested_) {
         const CompanionError failure = runSession(endpoint, pairingToken);
         if (stopRequested_ || permanentProtocolError(failure)) return;
-        if (!waitForRetry(delay)) return;
+        if (!waitForRetry(reconnectDelay(delay, ++retryAttempt))) return;
         delay = std::min(delay * 2, kMaximumReconnectDelay);
     }
 }
@@ -343,18 +413,25 @@ CompanionError SwitchTcpCompanionService::runSession(
     connecting.endpointAddress = endpoint.address;
     publish(connecting);
 
-    const int socketFd = openSocket(endpoint);
+    CompanionError openFailure = CompanionError::TransportUnavailable;
+    const int socketFd = openSocket(endpoint, stopRequested_, openFailure);
     if (socketFd < 0) {
-        brls::Logger::error("Companion TCP: connection to {}:{} failed errno={}",
-            endpoint.address, endpoint.port, errno);
-        return CompanionError::TransportUnavailable;
+        if (!stopRequested_) {
+            brls::Logger::error("Companion TCP: connection to {}:{} failed error={} errno={}",
+                endpoint.address, endpoint.port, toString(openFailure), errno);
+        }
+        return stopRequested_ ? CompanionError::None : openFailure;
     }
+    activeSocket_ = socketFd;
+    if (stopRequested_) ::shutdown(socketFd, SHUT_RDWR);
     brls::Logger::info("Companion TCP: connected to {}:{}", endpoint.address,
         endpoint.port);
 
     CompanionError failure = CompanionError::None;
     const auto clientNonce = createNonce();
     if (!clientNonce) {
+        int expectedSocket = socketFd;
+        activeSocket_.compare_exchange_strong(expectedSocket, -1);
         ::close(socketFd);
         return CompanionError::TransportUnavailable;
     }
@@ -364,14 +441,14 @@ CompanionError SwitchTcpCompanionService::runSession(
     std::string response;
 
     if (!pairRequest || !sendAll(socketFd, pairRequest.value())) {
-        failure = pairRequest ? CompanionError::ConnectionClosed : pairRequest.error();
+        failure = pairRequest ? socketFailure() : pairRequest.error();
     } else {
         brls::Logger::info("Companion protocol: pair.request sent deviceId={}",
             identity_ ? identity_->pairingInfo().deviceId : "unknown");
         while (failure == CompanionError::None &&
                session.status().state != CompanionConnectionState::Online) {
             if (!receiveLine(socketFd, response)) {
-                failure = CompanionError::ConnectionClosed;
+                failure = socketFailure();
                 break;
             }
             const auto next = session.receive(response);
@@ -379,7 +456,7 @@ CompanionError SwitchTcpCompanionService::runSession(
             if (!next) {
                 failure = next.error();
             } else if (next.value() && !sendAll(socketFd, *next.value())) {
-                failure = CompanionError::ConnectionClosed;
+                failure = socketFailure();
             }
         }
         if (failure == CompanionError::None) {
@@ -405,7 +482,7 @@ CompanionError SwitchTcpCompanionService::runSession(
             const auto ping = session.heartbeat(localBattery);
             if (!ping || !sendAll(socketFd, ping.value()) ||
                 !receiveLine(socketFd, response)) {
-                failure = CompanionError::ConnectionClosed;
+                failure = ping ? socketFailure() : ping.error();
                 break;
             }
             const auto pong = session.receive(response);
@@ -414,6 +491,8 @@ CompanionError SwitchTcpCompanionService::runSession(
         }
 
     ::shutdown(socketFd, SHUT_RDWR);
+    int expectedSocket = socketFd;
+    activeSocket_.compare_exchange_strong(expectedSocket, -1);
     ::close(socketFd);
     if (stopRequested_) return CompanionError::None;
     if (failure == CompanionError::None) failure = CompanionError::ConnectionClosed;
@@ -428,7 +507,7 @@ void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
     status_ = status;
 }
 
-bool SwitchTcpCompanionService::waitForRetry(std::chrono::seconds delay) {
+bool SwitchTcpCompanionService::waitForRetry(std::chrono::milliseconds delay) {
     std::unique_lock<std::mutex> lock(waitMutex_);
     return !waitCondition_.wait_for(lock, delay,
         [this] { return stopRequested_.load(); });

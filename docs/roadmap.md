@@ -22,6 +22,7 @@
 - [x] inicialização automática após o primeiro pareamento;
 - [x] redescoberta após queda ou mudança de IP;
 - [x] backoff exponencial cancelável limitado a 16 segundos;
+- [x] jitter de reconexão, timeout de I/O e conexão TCP cancelável;
 - [x] autenticação mútua desafio–resposta com HMAC-SHA256;
 - [x] protocolo v2 sem transmissão da credencial de pareamento;
 - [x] Companion Android inicia o servidor em todo startup;
