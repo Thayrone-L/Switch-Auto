@@ -150,6 +150,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         lastSnapshotTime = now
         context.activity.runOnUiThread {
             val options = MapSnapshotter.Options(MAP_WIDTH, MAP_HEIGHT)
+                .withPixelRatio(1f)
                 .withStyleBuilder(Style.Builder().fromUri(MAP_STYLE_URI))
                 .withCameraPosition(CameraPosition.Builder()
                     .target(LatLng(location.latitude, location.longitude))
@@ -196,6 +197,14 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         paint.strokeWidth = 5f
         paint.color = Color.WHITE
         canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
+        paint.style = Paint.Style.FILL
+        paint.textSize = 11f
+        paint.color = Color.argb(190, 0, 0, 0)
+        canvas.drawRect(
+            0f, mutable.height - 19f, mutable.width.toFloat(), mutable.height.toFloat(), paint)
+        paint.color = Color.WHITE
+        canvas.drawText(
+            MAP_ATTRIBUTION, 7f, mutable.height - 6f, paint)
         for (quality in MAP_JPEG_QUALITIES) {
             val encoded = ByteArrayOutputStream().use { output ->
                 mutable.compress(Bitmap.CompressFormat.JPEG, quality, output)
@@ -213,6 +222,9 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         private val MAP_JPEG_QUALITIES = intArrayOf(72, 60, 48, 36)
         private const val MAX_MAP_FRAME_BYTES = 512 * 1024
         private const val MAP_SNAPSHOT_INTERVAL_MS = 3_000L
-        private const val MAP_STYLE_URI = "https://demotiles.maplibre.org/style.json"
+        private const val MAP_STYLE_URI =
+            "https://tiles.openfreemap.org/styles/liberty"
+        private const val MAP_ATTRIBUTION =
+            "OpenFreeMap (c) OpenMapTiles | Data (c) OpenStreetMap contributors"
     }
 }
