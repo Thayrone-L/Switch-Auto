@@ -59,5 +59,21 @@ necessidade e pedir acesso somente quando o usuário o ativar. Acesso de mídia
 que depende de uma tela especial do sistema é informado como
 `requires_settings`.
 
+## Widgets do Companion
+
+Os recursos fornecidos pelo celular também seguem um contrato de widgets. O
+`CompanionWidgetRegistry` registra os widgets, controla seu ciclo de vida e reúne
+as contribuições de telemetria antes de enviá-las ao Switch. Widgets não escrevem
+diretamente no socket.
+
+- `core.battery`: lê a bateria do Android, recebe a bateria do Switch e mantém o
+  campo `phoneBatteryPercent` compatível com versões anteriores.
+- `core.gps`: solicita localização somente quando habilitado, combina os
+  provedores GPS e rede e publica posição, precisão, velocidade, direção e horário.
+
+O GPS começa desabilitado. Nesta fase ele funciona enquanto o processo do
+Companion está ativo. A etapa seguinte será mover transporte e localização para
+um foreground service, permitindo operação previsível com a tela bloqueada.
+
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

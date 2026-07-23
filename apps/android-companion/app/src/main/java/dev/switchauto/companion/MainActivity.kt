@@ -2,13 +2,10 @@ package dev.switchauto.companion
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.BatteryManager
 import android.os.Bundle
 import android.net.Uri
 import android.text.method.ScrollingMovementMethod
@@ -59,6 +56,9 @@ class MainActivity : Activity() {
     private val executor: ExecutorService = Executors.newCachedThreadPool()
     private val running = AtomicBoolean(false)
     private lateinit var permissionManager: AndroidPermissionManager
+    private lateinit var widgetRegistry: CompanionWidgetRegistry
+    private lateinit var batteryWidget: BatteryWidget
+    private lateinit var gpsWidget: GpsWidget
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
@@ -67,6 +67,8 @@ class MainActivity : Activity() {
     private lateinit var toggleButton: Button
     private lateinit var scanButton: Button
     private lateinit var forgetButton: Button
+    private lateinit var widgetStatusView: TextView
+    private lateinit var gpsButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
@@ -78,6 +80,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
         permissionManager = AndroidPermissionManager(this)
+        initializeWidgets()
         refreshConnectionDetails()
         migratePreferences()
         val hasTrustedSwitch = getPreferences(MODE_PRIVATE).all.keys
@@ -104,6 +107,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (::widgetRegistry.isInitialized) widgetRegistry.dispose()
         stopServer()
         executor.shutdownNow()
         super.onDestroy()
@@ -190,6 +194,30 @@ class MainActivity : Activity() {
         pairingCard.addView(forgetButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(pairingCard)
+
+        val widgetsCard = card(padding).apply {
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.topMargin = gap
+            layoutParams = params
+            addView(label("COMPANION WIDGETS", 13f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+        }
+        widgetStatusView = label("Loading widgets…", 16f).apply {
+            setTextColor(Color.WHITE)
+        }
+        widgetsCard.addView(widgetStatusView)
+        gpsButton = Button(this).apply {
+            text = "ENABLE GPS"
+            setOnClickListener {
+                if (::gpsWidget.isInitialized) gpsWidget.setEnabled(!gpsWidget.isEnabled())
+            }
+        }
+        widgetsCard.addView(gpsButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        root.addView(widgetsCard)
 
         val diagnosticsButton = Button(this).apply {
             text = "SHOW DIAGNOSTICS"
@@ -376,16 +404,14 @@ class MainActivity : Activity() {
                             send(writer, message("error").put("code", "not_paired"))
                         }
                         "ping" -> if (paired) {
-                            val switchBattery = request.optInt("switchBatteryPercent", -1)
-                            if (switchBattery in 0..100) {
-                                runOnUiThread {
-                                    statusView.text =
-                                        "Connected — Phone ${phoneBatteryPercent()}% | Switch $switchBattery%"
-                                }
-                            }
-                            send(writer, message("pong")
+                            widgetRegistry.handleMessage(request)
+                            val response = message("pong")
                                 .put("sequence", request.optInt("sequence"))
-                                .put("phoneBatteryPercent", phoneBatteryPercent()))
+                            widgetRegistry.contributeTelemetry(response)
+                            runOnUiThread {
+                                statusView.text = "Connected — ${batteryWidget.statusText()}"
+                            }
+                            send(writer, response)
                         } else {
                             send(writer, message("error").put("code", "not_paired"))
                         }
@@ -620,14 +646,26 @@ class MainActivity : Activity() {
         appendLog("All trusted Switch credentials were revoked")
     }
 
-    private fun phoneBatteryPercent(): Int {
-        val manager = getSystemService(BATTERY_SERVICE) as BatteryManager
-        val capacity = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        if (capacity in 0..100) return capacity
-        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        return if (level >= 0 && scale > 0) level * 100 / scale else 0
+    private fun initializeWidgets() {
+        val context = CompanionWidgetContext(
+            activity = this,
+            permissions = permissionManager,
+            log = ::appendLog,
+            stateChanged = { runOnUiThread(::refreshWidgetViews) })
+        widgetRegistry = CompanionWidgetRegistry(context)
+        batteryWidget = BatteryWidget()
+        gpsWidget = GpsWidget()
+        check(widgetRegistry.register(batteryWidget))
+        check(widgetRegistry.register(gpsWidget))
+        widgetRegistry.initializeAndActivate()
+    }
+
+    private fun refreshWidgetViews() {
+        if (!::widgetStatusView.isInitialized || !::widgetRegistry.isInitialized) return
+        widgetStatusView.text = widgetRegistry.all().joinToString("\n") {
+            "${it.title}: ${it.statusText()}"
+        }
+        gpsButton.text = if (gpsWidget.isEnabled()) "DISABLE GPS" else "ENABLE GPS"
     }
 
     private fun randomNonce(): String {

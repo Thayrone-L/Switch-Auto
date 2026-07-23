@@ -33,6 +33,8 @@
 - [x] validar integridade e paridade dos catálogos;
 - [x] definir capacidades e `PermissionService` independente de plataforma;
 - [x] implementar broker Android sem pedidos sensíveis no startup;
+- [x] implementar Registry e lifecycle dos widgets do Companion;
+- [x] migrar a telemetria de bateria do Android para `core.battery`;
 - carregar tema padrão;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;
@@ -48,7 +50,8 @@
 
 ## Marco 2 — Mídia e GPS
 
-- velocidade obtida pelo GPS do Android;
+- [x] widget GPS inicial com posição, precisão, velocidade e direção;
+- foreground service para manter transporte e GPS com a tela bloqueada;
 - metadados da sessão de mídia;
 - play, pause, faixa anterior e próxima;
 - permissões e serviço em primeiro plano no Android.
