@@ -137,11 +137,9 @@ void DashboardView::refresh() {
             break;
     }
     connectionButton_->setText(
-        state.companionConnected ? tr("switch_auto/connection/connected")
+        state.companionConnected ? tr("switch_auto/connection/details")
                                  : tr("switch_auto/connection/open"));
-    connectionButton_->setState(
-        state.companionConnected ? brls::ButtonState::DISABLED
-                                 : brls::ButtonState::ENABLED);
+    connectionButton_->setState(brls::ButtonState::ENABLED);
     trackLabel_->setText(state.companionConnected
                              ? state.track
                              : tr("switch_auto/media/no_media"));

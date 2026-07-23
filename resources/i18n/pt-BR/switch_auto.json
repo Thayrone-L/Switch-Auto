@@ -29,8 +29,9 @@
         "code_hint": "Código temporário exibido pelo aplicativo Android",
         "connect": "LOCALIZAR E CONECTAR",
         "offline": "CONTINUAR OFFLINE",
-        "open": "CONFIGURAR CONEXÃO",
+        "open": "VINCULAR",
         "connected": "CONECTADO",
+        "details": "DETALHES",
         "ready": "Leia o QR no aplicativo Companion",
         "not_found": "Companion não encontrado. Confirme que o servidor está iniciado e tente novamente.",
         "error": "Erro de conexão: {}"

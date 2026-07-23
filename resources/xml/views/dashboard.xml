@@ -10,15 +10,28 @@
 
     <brls:Box width="auto" height="72px" axis="row" alignItems="center">
         <brls:Label
-            width="33%" height="auto"
+            width="24%" height="auto"
             text="@i18n/switch_auto/title" fontSize="24"
             horizontalAlign="left" textColor="#f04455" />
         <brls:Label
-            id="clock" width="34%" height="auto"
+            id="clock" width="22%" height="auto"
             text="--:--" fontSize="46"
             horizontalAlign="center" />
+        <brls:Box
+            width="34%" height="54px" axis="row" alignItems="center"
+            paddingLeft="18px" paddingRight="6px"
+            backgroundColor="#111925" cornerRadius="18">
+            <brls:Label
+                id="connection" width="auto" height="auto" grow="1.0"
+                text="@i18n/switch_auto/status/offline" fontSize="17"
+                horizontalAlign="left" textColor="#91a0b5" />
+            <brls:Button
+                id="connection-button"
+                text="@i18n/switch_auto/connection/open"
+                width="132px" height="42px" />
+        </brls:Box>
         <brls:Label
-            id="battery" width="33%" height="auto"
+            id="battery" width="20%" height="auto"
             text="--%" fontSize="22"
             horizontalAlign="right" />
     </brls:Box>
@@ -34,20 +47,12 @@
 
         <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="24px">
             <brls:Box
-                width="auto" height="44%" axis="column"
-                paddingTop="24px" paddingRight="26px" paddingBottom="24px" paddingLeft="26px"
+                width="auto" height="auto" axis="column" grow="1.0"
+                paddingTop="30px" paddingRight="30px" paddingBottom="30px" paddingLeft="30px"
                 backgroundColor="#111925" cornerRadius="24">
-                <brls:Label text="@i18n/switch_auto/dashboard/companion" fontSize="18" height="34px" horizontalAlign="left" textColor="#91a0b5" />
-                <brls:Label id="connection" text="@i18n/switch_auto/status/offline" fontSize="25" height="auto" horizontalAlign="left" grow="1.0" />
-                <brls:Button id="connection-button" text="@i18n/switch_auto/connection/open" height="52px" />
-            </brls:Box>
-            <brls:Box
-                width="auto" height="auto" axis="column" grow="1.0" marginTop="24px"
-                paddingTop="24px" paddingRight="26px" paddingBottom="24px" paddingLeft="26px"
-                backgroundColor="#111925" cornerRadius="24">
-                <brls:Label text="@i18n/switch_auto/dashboard/now_playing" fontSize="18" height="34px" horizontalAlign="left" textColor="#91a0b5" />
-                <brls:Label id="track" text="@i18n/switch_auto/media/no_media" fontSize="25" height="48px" horizontalAlign="left" />
-                <brls:Label id="artist" text="@i18n/switch_auto/media/companion_offline" fontSize="18" height="auto" horizontalAlign="left" textColor="#91a0b5" grow="1.0" />
+                <brls:Label text="@i18n/switch_auto/dashboard/now_playing" fontSize="18" height="42px" horizontalAlign="left" textColor="#91a0b5" />
+                <brls:Label id="track" text="@i18n/switch_auto/media/no_media" fontSize="30" height="64px" horizontalAlign="left" />
+                <brls:Label id="artist" text="@i18n/switch_auto/media/companion_offline" fontSize="20" height="auto" horizontalAlign="left" textColor="#91a0b5" grow="1.0" />
             </brls:Box>
         </brls:Box>
     </brls:Box>

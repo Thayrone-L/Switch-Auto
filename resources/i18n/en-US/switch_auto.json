@@ -29,8 +29,9 @@
         "code_hint": "Temporary code displayed by the Android app",
         "connect": "FIND AND CONNECT",
         "offline": "CONTINUE OFFLINE",
-        "open": "CONFIGURE CONNECTION",
+        "open": "PAIR",
         "connected": "CONNECTED",
+        "details": "DETAILS",
         "ready": "Scan the QR in the Companion app",
         "not_found": "Companion not found. Confirm that the server is running and try again.",
         "error": "Connection error: {}"

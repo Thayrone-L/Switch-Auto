@@ -4,12 +4,16 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.BatteryManager
 import android.os.Bundle
 import android.net.Uri
 import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -57,6 +61,7 @@ class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
+    private lateinit var pairingStatusView: TextView
     private lateinit var logView: TextView
     private lateinit var toggleButton: Button
     private lateinit var scanButton: Button
@@ -92,19 +97,39 @@ class MainActivity : Activity() {
 
     private fun buildUi(): ScrollView {
         val density = resources.displayMetrics.density
-        val padding = (24 * density).toInt()
+        val padding = (20 * density).toInt()
+        val gap = (12 * density).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
+            setBackgroundColor(Color.rgb(9, 13, 20))
         }
 
-        root.addView(label("Switch Auto", 32f).apply {
-            setTextColor(Color.rgb(230, 0, 18))
+        root.addView(label("SWITCH AUTO", 28f).apply {
+            setTextColor(Color.rgb(240, 68, 85))
+            setTypeface(typeface, Typeface.BOLD)
         })
-        root.addView(label("Handshake prototype", 18f))
+        root.addView(label("ANDROID COMPANION", 13f).apply {
+            setTextColor(Color.rgb(145, 160, 181))
+            setPadding(0, 0, 0, gap)
+        })
 
-        statusView = label("Stopped", 20f)
-        addressView = label("IP: unavailable", 18f)
+        val statusCard = card(padding).apply {
+            addView(label("CONNECTION", 13f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+        }
+        statusView = label("Starting Companion…", 24f).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        addressView = label("Preparing local network", 15f).apply {
+            setTextColor(Color.rgb(145, 160, 181))
+        }
+        statusCard.addView(statusView)
+        statusCard.addView(addressView)
+        root.addView(statusCard)
+
         toggleButton = Button(this).apply {
             text = "Start server"
             setOnClickListener {
@@ -115,36 +140,80 @@ class MainActivity : Activity() {
             typeface = android.graphics.Typeface.MONOSPACE
             movementMethod = ScrollingMovementMethod()
             setTextIsSelectable(true)
+            setTextColor(Color.rgb(190, 200, 214))
+            visibility = View.GONE
         }
 
-        root.addView(statusView)
-        root.addView(addressView)
+        val pairingCard = card(padding).apply {
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.topMargin = gap
+            layoutParams = params
+            addView(label("PAIRED SWITCH", 13f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+            pairingStatusView = label(
+                if (hasStoredPairing()) "Ready for automatic connection"
+                else "No Switch paired yet", 19f).apply {
+                setTextColor(Color.WHITE)
+            }
+            addView(pairingStatusView)
+        }
         scanButton = Button(this).apply {
-            text = "Scan Switch QR"
+            text = if (hasStoredPairing()) "PAIR ANOTHER SWITCH" else "SCAN SWITCH QR"
+            backgroundTintList = ColorStateList.valueOf(Color.rgb(240, 68, 85))
+            setTextColor(Color.WHITE)
             setOnClickListener { scanSwitchQr() }
         }
-        root.addView(scanButton, ViewGroup.LayoutParams.MATCH_PARENT,
+        pairingCard.addView(scanButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         forgetButton = Button(this).apply {
-            text = "Forget paired Switch"
+            text = "FORGET PAIRED SWITCH"
             isEnabled = hasStoredPairing()
             setOnClickListener { confirmForgetPairing() }
         }
-        root.addView(forgetButton, ViewGroup.LayoutParams.MATCH_PARENT,
+        pairingCard.addView(forgetButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(toggleButton, ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(label("Event log", 20f).apply { setPadding(0, padding, 0, 0) })
+        root.addView(pairingCard)
+
+        val diagnosticsButton = Button(this).apply {
+            text = "SHOW DIAGNOSTICS"
+            setOnClickListener {
+                val show = logView.visibility != View.VISIBLE
+                logView.visibility = if (show) View.VISIBLE else View.GONE
+                toggleButton.visibility = if (show) View.VISIBLE else View.GONE
+                text = if (show) "HIDE DIAGNOSTICS" else "SHOW DIAGNOSTICS"
+            }
+        }
+        root.addView(diagnosticsButton)
+        toggleButton.visibility = View.GONE
+        root.addView(toggleButton)
         root.addView(logView)
 
-        return ScrollView(this).apply { addView(root) }
+        return ScrollView(this).apply {
+            setBackgroundColor(Color.rgb(9, 13, 20))
+            addView(root)
+        }
     }
 
     private fun label(value: String, size: Float) = TextView(this).apply {
         text = value
         textSize = size
-        setTextColor(Color.DKGRAY)
+        setTextColor(Color.WHITE)
         setPadding(0, 8, 0, 8)
+    }
+
+    private fun card(padding: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(padding, padding, padding, padding)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 22 * resources.displayMetrics.density
+            setColor(Color.rgb(17, 25, 37))
+            setStroke((1 * resources.displayMetrics.density).toInt(),
+                Color.rgb(36, 48, 65))
+        }
     }
 
     private fun startServer() {
@@ -460,6 +529,8 @@ class MainActivity : Activity() {
                 .putInt("schemaVersion", SETTINGS_SCHEMA_VERSION)
                 .apply()
             forgetButton.isEnabled = true
+            pairingStatusView.text = "Switch $deviceId is trusted"
+            scanButton.text = "PAIR ANOTHER SWITCH"
             statusView.text = "Switch QR paired: $deviceId"
             appendLog("QR accepted for deviceId=$deviceId; secret stored in app preferences")
             if (!running.get()) startServer()
@@ -529,6 +600,8 @@ class MainActivity : Activity() {
         activeClients.forEach { client -> runCatching { client.close() } }
         activeClients.clear()
         forgetButton.isEnabled = false
+        pairingStatusView.text = "No Switch paired yet"
+        scanButton.text = "SCAN SWITCH QR"
         statusView.text = "Pairing removed — scan the Switch QR to pair again"
         appendLog("All trusted Switch credentials were revoked")
     }
