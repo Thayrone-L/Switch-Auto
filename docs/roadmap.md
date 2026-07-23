@@ -33,6 +33,9 @@
 - [x] conexão manual por endereço IP;
 - [x] transporte TCP assíncrono com heartbeat e reconexão;
 - [x] estado da conexão exibido na dashboard Borealis;
+- [x] Event Queue integrada ao transporte sem polling de estado pela UI;
+- [x] logs correlacionados por sessão e relatório de diagnóstico versionado;
+- [x] testes de queda, rejeição, reconexão e protocolo incompatível;
 - [x] identidade persistente gerada pelo Switch;
 - [x] descoberta automática do Companion, sem IP manual;
 - migrar o transporte experimental de TCP para WebSocket;

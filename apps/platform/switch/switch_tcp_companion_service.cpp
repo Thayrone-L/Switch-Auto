@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <borealis.hpp>
 #include <switch.h>
@@ -37,6 +38,10 @@ constexpr const char* kTrustedCompanionCorruptPath =
     "sdmc:/switch/switch-auto/identity/companion.json.corrupt";
 constexpr const char* kLegacyTrustedCompanionPath =
     "sdmc:/switch/switch-auto/identity/companion.trusted";
+constexpr const char* kDiagnosticDirectory =
+    "sdmc:/switch/switch-auto/diagnostics";
+constexpr const char* kDiagnosticPath =
+    "sdmc:/switch/switch-auto/diagnostics/latest.json";
 
 bool saveTrustedCompanion() {
     std::FILE* file = std::fopen(kTrustedCompanionTemporaryPath, "wb");
@@ -72,6 +77,21 @@ bool loadTrustedCompanion() {
         return true;
     }
     return false;
+}
+
+void writeDiagnosticReport(std::string_view sessionId,
+    const CompanionEndpoint& endpoint, const CompanionStatus& status) {
+    ::mkdir(kDiagnosticDirectory, 0700);
+    std::FILE* file = std::fopen(kDiagnosticPath, "wb");
+    if (!file) return;
+    std::fprintf(file,
+        "{\"schemaVersion\":1,\"platform\":\"switch\",\"protocolVersion\":%d,"
+        "\"sessionId\":\"%.*s\",\"endpoint\":\"%s\",\"state\":\"%s\","
+        "\"lastError\":\"%s\",\"retryAttempt\":%u,\"lastSequence\":%u}\n",
+        kProtocolVersion, static_cast<int>(sessionId.size()), sessionId.data(),
+        endpoint.address.c_str(), toString(status.state), toString(status.lastError),
+        status.retryAttempt, status.lastSequence);
+    std::fclose(file);
 }
 
 bool sendAll(int socketFd, std::string_view payload) {
@@ -270,7 +290,8 @@ std::optional<CompanionEndpoint> discoverCompanion(
 
 }  // namespace
 
-SwitchTcpCompanionService::SwitchTcpCompanionService() {
+SwitchTcpCompanionService::SwitchTcpCompanionService(EventQueue& events)
+    : events_(events) {
     auto identity = SwitchDeviceIdentity::loadOrCreate();
     if (identity) {
         identity_ = std::move(identity.value());
@@ -407,25 +428,39 @@ void SwitchTcpCompanionService::runManual(
 
 CompanionError SwitchTcpCompanionService::runSession(
     const CompanionEndpoint& endpoint, const std::string& pairingToken) {
+    const auto generatedSessionId = createNonce();
+    const std::string sessionId = generatedSessionId
+        ? generatedSessionId->substr(0, 12) : "unavailable";
     CompanionSession session;
     session.transportConnected();
     CompanionStatus connecting = session.status();
+    connecting.sessionId = sessionId;
     connecting.endpointAddress = endpoint.address;
     publish(connecting);
+    const auto publishSession = [this, &session, &endpoint, &sessionId]() {
+        CompanionStatus status = session.status();
+        status.sessionId = sessionId;
+        status.endpointAddress = endpoint.address;
+        publish(status);
+    };
 
     CompanionError openFailure = CompanionError::TransportUnavailable;
     const int socketFd = openSocket(endpoint, stopRequested_, openFailure);
     if (socketFd < 0) {
         if (!stopRequested_) {
-            brls::Logger::error("Companion TCP: connection to {}:{} failed error={} errno={}",
-                endpoint.address, endpoint.port, toString(openFailure), errno);
+            brls::Logger::error("[session={}] Companion TCP: connection to {}:{} failed error={} errno={}",
+                sessionId, endpoint.address, endpoint.port, toString(openFailure), errno);
         }
+        CompanionStatus diagnostic = connecting;
+        diagnostic.lastError = openFailure;
+        diagnostic.state = CompanionConnectionState::Failed;
+        writeDiagnosticReport(sessionId, endpoint, diagnostic);
         return stopRequested_ ? CompanionError::None : openFailure;
     }
     activeSocket_ = socketFd;
     if (stopRequested_) ::shutdown(socketFd, SHUT_RDWR);
-    brls::Logger::info("Companion TCP: connected to {}:{}", endpoint.address,
-        endpoint.port);
+    brls::Logger::info("[session={}] Companion TCP: connected to {}:{}",
+        sessionId, endpoint.address, endpoint.port);
 
     CompanionError failure = CompanionError::None;
     const auto clientNonce = createNonce();
@@ -436,15 +471,16 @@ CompanionError SwitchTcpCompanionService::runSession(
         return CompanionError::TransportUnavailable;
     }
     const auto pairRequest = session.begin(
-        pairingToken, identity_ ? identity_->pairingInfo().deviceId : "", *clientNonce);
-    publish(session.status());
+        pairingToken, identity_ ? identity_->pairingInfo().deviceId : "", *clientNonce,
+        sessionId);
+    publishSession();
     std::string response;
 
     if (!pairRequest || !sendAll(socketFd, pairRequest.value())) {
         failure = pairRequest ? socketFailure() : pairRequest.error();
     } else {
-        brls::Logger::info("Companion protocol: pair.request sent deviceId={}",
-            identity_ ? identity_->pairingInfo().deviceId : "unknown");
+        brls::Logger::info("[session={}] Companion protocol: pair.request sent deviceId={}",
+            sessionId, identity_ ? identity_->pairingInfo().deviceId : "unknown");
         while (failure == CompanionError::None &&
                session.status().state != CompanionConnectionState::Online) {
             if (!receiveLine(socketFd, response)) {
@@ -452,7 +488,7 @@ CompanionError SwitchTcpCompanionService::runSession(
                 break;
             }
             const auto next = session.receive(response);
-            publish(session.status());
+            publishSession();
             if (!next) {
                 failure = next.error();
             } else if (next.value() && !sendAll(socketFd, *next.value())) {
@@ -460,7 +496,8 @@ CompanionError SwitchTcpCompanionService::runSession(
             }
         }
         if (failure == CompanionError::None) {
-            brls::Logger::info("Companion protocol: mutually authenticated session online");
+            brls::Logger::info("[session={}] Companion protocol: mutually authenticated session online",
+                sessionId);
             hasTrustedCompanion_ = true;
             if (!saveTrustedCompanion()) {
                 brls::Logger::error("Companion settings: failed to persist trusted state");
@@ -486,7 +523,7 @@ CompanionError SwitchTcpCompanionService::runSession(
                 break;
             }
             const auto pong = session.receive(response);
-            publish(session.status());
+            publishSession();
             if (!pong) failure = pong.error();
         }
 
@@ -497,14 +534,33 @@ CompanionError SwitchTcpCompanionService::runSession(
     if (stopRequested_) return CompanionError::None;
     if (failure == CompanionError::None) failure = CompanionError::ConnectionClosed;
     session.transportDisconnected(failure);
-    brls::Logger::error("Companion transport: session ended ({})", toString(failure));
-    publish(session.status());
+    brls::Logger::error("[session={}] Companion transport: session ended ({})",
+        sessionId, toString(failure));
+    publishSession();
+    CompanionStatus diagnosticStatus = session.status();
+    diagnosticStatus.sessionId = sessionId;
+    writeDiagnosticReport(sessionId, endpoint, diagnosticStatus);
     return failure;
 }
 
 void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
-    std::lock_guard<std::mutex> lock(statusMutex_);
-    status_ = status;
+    {
+        std::lock_guard<std::mutex> lock(statusMutex_);
+        status_ = status;
+    }
+    events_.post([this, status]() {
+        StatusHandler handler;
+        {
+            std::lock_guard<std::mutex> lock(handlerMutex_);
+            handler = statusHandler_;
+        }
+        if (handler) handler(status);
+    });
+}
+
+void SwitchTcpCompanionService::setStatusHandler(StatusHandler handler) {
+    std::lock_guard<std::mutex> lock(handlerMutex_);
+    statusHandler_ = std::move(handler);
 }
 
 bool SwitchTcpCompanionService::waitForRetry(std::chrono::milliseconds delay) {

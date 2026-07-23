@@ -45,5 +45,9 @@ O log do Android fica no diretório externo privado do aplicativo, no arquivo
 `switch-auto.log`. O arquivo é rotacionado ao atingir 1 MiB e nunca registra o
 token de pareamento.
 
+As linhas de uma conexão incluem `sessionId`. O último resultado também fica em
+`diagnostics/latest.json`, com schema versionado e sem segredos. Credenciais com
+tipo ou formato inválido são removidas durante a recuperação das preferências.
+
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

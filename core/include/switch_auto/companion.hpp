@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,6 +53,7 @@ struct CompanionStatus {
     std::optional<std::string> sessionToken;
     std::uint32_t lastSequence = 0;
     std::optional<int> remoteBatteryPercent;
+    std::string sessionId;
     std::string endpointAddress;
     std::uint32_t retryAttempt = 0;
     std::uint32_t retryDelaySeconds = 0;
@@ -66,6 +68,8 @@ struct CompanionPairingInfo {
 
 class CompanionService {
 public:
+    using StatusHandler = std::function<void(const CompanionStatus&)>;
+
     virtual ~CompanionService() = default;
     virtual Result<void, CompanionError> connect(
         const CompanionEndpoint& endpoint, std::string_view pairingCode) = 0;
@@ -75,6 +79,7 @@ public:
     virtual CompanionStatus status() const = 0;
     virtual std::optional<CompanionPairingInfo> pairingInfo() const = 0;
     virtual bool hasTrustedCompanion() const = 0;
+    virtual void setStatusHandler(StatusHandler handler) = 0;
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,
@@ -83,7 +88,7 @@ class CompanionSession {
 public:
     Result<std::string, CompanionError> begin(
         std::string_view pairingToken, std::string_view deviceId,
-        std::string_view clientNonce);
+        std::string_view clientNonce, std::string_view sessionId = {});
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
     Result<std::string, CompanionError> heartbeat(std::optional<int> localBatteryPercent = std::nullopt);
     void transportConnected();

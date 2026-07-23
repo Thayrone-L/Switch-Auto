@@ -3,6 +3,7 @@
 namespace switch_auto::ui {
 
 using namespace brls::literals;
+ConnectionView* ConnectionView::active_ = nullptr;
 
 namespace {
 
@@ -38,6 +39,7 @@ std::string statusText(const CompanionStatus& status) {
 }  // namespace
 
 ConnectionView::ConnectionView(CompanionService& companion) : companion_(companion) {
+    active_ = this;
     brls::Logger::info("Connection screen stage: inflating-xml");
     inflateFromXMLRes("xml/views/connection.xml");
     brls::Logger::info("Connection screen stage: xml-ready");
@@ -54,14 +56,12 @@ ConnectionView::ConnectionView(CompanionService& companion) : companion_(compani
         close();
         return true;
     });
-    statusTimer_.setCallback([this]() { refreshStatus(); });
-    statusTimer_.start(250);
-    refreshStatus();
+    refreshStatus(companion_.status());
     brls::Logger::info("Connection screen stage: initialized");
 }
 
 ConnectionView::~ConnectionView() {
-    statusTimer_.stop();
+    if (active_ == this) active_ = nullptr;
 }
 
 void ConnectionView::connect() {
@@ -72,12 +72,15 @@ void ConnectionView::connect() {
         return;
     }
     connectButton_->setState(brls::ButtonState::DISABLED);
-    refreshStatus();
+    refreshStatus(companion_.status());
 }
 
-void ConnectionView::refreshStatus() {
+void ConnectionView::onCompanionStatus(const CompanionStatus& status) {
+    if (active_) active_->refreshStatus(status);
+}
+
+void ConnectionView::refreshStatus(const CompanionStatus& status) {
     if (closing_) return;
-    const CompanionStatus status = companion_.status();
     statusLabel_->setText(statusText(status));
     if (status.state == CompanionConnectionState::Online) {
         close();
@@ -90,7 +93,6 @@ void ConnectionView::refreshStatus() {
 void ConnectionView::close() {
     if (closing_) return;
     closing_ = true;
-    statusTimer_.stop();
     brls::Application::popActivity();
 }
 

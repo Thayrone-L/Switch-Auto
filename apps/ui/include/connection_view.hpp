@@ -11,14 +11,15 @@ class ConnectionView final : public brls::Box {
 public:
     explicit ConnectionView(CompanionService& companion);
     ~ConnectionView() override;
+    static void onCompanionStatus(const CompanionStatus& status);
 
 private:
     void connect();
-    void refreshStatus();
+    void refreshStatus(const CompanionStatus& status);
     void close();
 
     CompanionService& companion_;
-    brls::RepeatingTimer statusTimer_;
+    static ConnectionView* active_;
     bool closing_ = false;
 
     BRLS_BIND(brls::Label, deviceIdLabel_, "device-id");

@@ -10,6 +10,7 @@
 #include "connection_view.hpp"
 #include "dashboard_view.hpp"
 #include "qr_code_view.hpp"
+#include "switch_auto/event_queue.hpp"
 
 #ifdef __SWITCH__
 #include <switch.h>
@@ -27,6 +28,8 @@ public:
 #ifndef __SWITCH__
 class SimulatorCompanionService final : public switch_auto::CompanionService {
 public:
+    explicit SimulatorCompanionService(switch_auto::EventQueue& events)
+        : events_(events) {}
     switch_auto::Result<void, switch_auto::CompanionError> connect(
         const switch_auto::CompanionEndpoint& endpoint,
         std::string_view pairingCode) override {
@@ -44,15 +47,17 @@ public:
         status_.state = switch_auto::CompanionConnectionState::Online;
         status_.lastError = switch_auto::CompanionError::None;
         status_.remoteBatteryPercent = 76;
+        publish();
         return switch_auto::Result<void, switch_auto::CompanionError>::success();
     }
     switch_auto::Result<void, switch_auto::CompanionError> startAutomaticPairing() override {
         status_.state = switch_auto::CompanionConnectionState::Online;
         status_.remoteBatteryPercent = 76;
+        publish();
         return switch_auto::Result<void, switch_auto::CompanionError>::success();
     }
     void update() override {}
-    void disconnect() override { status_ = {}; }
+    void disconnect() override { status_ = {}; publish(); }
     switch_auto::CompanionStatus status() const override { return status_; }
     std::optional<switch_auto::CompanionPairingInfo> pairingInfo() const override {
         return switch_auto::CompanionPairingInfo{
@@ -61,8 +66,19 @@ public:
             "switchauto://pair?v=1&id=SIMULATOR&token=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"};
     }
     bool hasTrustedCompanion() const override { return true; }
+    void setStatusHandler(StatusHandler handler) override {
+        handler_ = std::move(handler);
+    }
 
 private:
+    void publish() {
+        const auto status = status_;
+        events_.post([this, status]() {
+            if (handler_) handler_(status);
+        });
+    }
+    switch_auto::EventQueue& events_;
+    StatusHandler handler_;
     switch_auto::CompanionStatus status_;
 };
 #endif
@@ -106,16 +122,21 @@ int main(int argc, char** argv) {
     }
 
     switch_auto::MutableRuntimeService runtime;
+    switch_auto::EventQueue events;
     std::unique_ptr<switch_auto::CompanionService> companion;
 #ifdef __SWITCH__
     // Borealis' switch_wrapper owns socket/PSM initialization and shutdown.
     companion = std::make_unique<
-        switch_auto::platform::switch_platform::SwitchTcpCompanionService>();
+        switch_auto::platform::switch_platform::SwitchTcpCompanionService>(events);
 #else
-    companion = std::make_unique<SimulatorCompanionService>();
+    companion = std::make_unique<SimulatorCompanionService>(events);
 #endif
     switch_auto::ui::DashboardView::setRuntimeService(&runtime);
     switch_auto::ui::DashboardView::setCompanionService(companion.get());
+    companion->setStatusHandler([](const switch_auto::CompanionStatus& status) {
+        switch_auto::ui::DashboardView::onCompanionStatus(status);
+        switch_auto::ui::ConnectionView::onCompanionStatus(status);
+    });
 
     brls::Application::createWindow("Switch Auto");
     brls::Logger::info("Switch Auto stage: window-created");
@@ -135,18 +156,18 @@ int main(int argc, char** argv) {
     }
     brls::sync([initialCompanion]() {
         brls::Logger::info("Switch Auto stage: deferred-connection-check");
-        if (initialCompanion && !initialCompanion->hasTrustedCompanion() &&
-                initialCompanion->status().state ==
-                switch_auto::CompanionConnectionState::Disconnected) {
+        if (initialCompanion && !initialCompanion->hasTrustedCompanion()) {
             switch_auto::ui::openConnectionScreen(initialCompanion);
         }
     });
 
     brls::Logger::info("Switch Auto stage: entering-main-loop");
     while (brls::Application::mainLoop()) {
+        events.drain();
     }
 #ifdef __SWITCH__
     switch_auto::ui::DashboardView::setCompanionService(nullptr);
+    companion->setStatusHandler({});
     companion.reset();
 #endif
     if (diagnosticLog) {

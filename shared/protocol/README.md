@@ -47,6 +47,15 @@ o app ou revogar credenciais fecha os sockets ativos. Todas as esperas de
 reconexão são acordadas imediatamente pelo cancelamento e nenhuma operação de
 rede bloqueia a thread da interface.
 
+Cada mudança de estado do transporte é publicada na `EventQueue` thread-safe e
+entregue à dashboard e à tela de conexão exclusivamente pela thread principal.
+As telas não consultam periodicamente o estado do socket.
+
+Cada tentativa TCP recebe um `sessionId` curto presente nos logs. Ao encerrar
+uma sessão, as duas pontas escrevem `diagnostics/latest.json` com
+`schemaVersion`, plataforma, versão do protocolo, sessão, peer/endpoint e
+resultado final. O relatório não contém tokens, provas HMAC ou credenciais.
+
 Exemplos concretos estão em [`examples/`](examples/). O Companion persiste a
 associação entre `deviceId` e token depois da leitura do QR. Credenciais, provas e
 tokens de sessão são omitidos dos logs. A autenticação é mútua, mas o conteúdo da
@@ -59,3 +68,8 @@ O Android mantém `schemaVersion = 1` nas preferências de pareamento. O Switch
 persiste seu marcador em `identity/companion.json`, migra o marcador legado e
 move arquivos inválidos para `companion.json.corrupt`. Revogar no Android remove
 os tokens confiáveis e fecha imediatamente os sockets de clientes ativos.
+
+A identidade do Switch usa o formato binário versionado `device.identity`.
+Instalações existentes são migradas de `device.key` sem alterar `deviceId` ou
+token. Um arquivo novo inválido é preservado como `device.identity.corrupt`
+antes da recuperação segura.

@@ -25,3 +25,9 @@ tentará reconectar automaticamente se o hotspot oscilar.
 
 Logs de inicialização e erros fatais são gravados em
 `/switch/switch-auto/switch-auto.log` no cartão SD.
+
+O transporte publica mudanças de estado pela Event Queue, sem polling da UI.
+Logs de conexão possuem `sessionId`, e o último relatório versionado fica em
+`/switch/switch-auto/diagnostics/latest.json`. A identidade persistida é migrada
+para `identity/device.identity`; arquivos inválidos são preservados com sufixo
+`.corrupt` antes da recuperação.

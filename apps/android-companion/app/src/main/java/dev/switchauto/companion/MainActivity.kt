@@ -66,6 +66,7 @@ class MainActivity : Activity() {
     @Volatile private var discoverySocket: DatagramSocket? = null
     private val logLock = Any()
     private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
+    private val sessionContext = ThreadLocal<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -200,9 +201,12 @@ class MainActivity : Activity() {
     }
 
     private fun handleClient(socket: Socket) {
+        var sessionId = UUID.randomUUID().toString().substring(0, 12)
+        sessionContext.set(sessionId)
+        var outcome = "connection_closed"
         activeClients.add(socket)
         val remote = socket.inetAddress.hostAddress ?: "unknown"
-        appendLog("Client connected: $remote")
+        appendLog("[session=$sessionId] Client connected: $remote")
         try {
             socket.use { client ->
                 client.soTimeout = SESSION_IO_TIMEOUT_MS
@@ -234,6 +238,11 @@ class MainActivity : Activity() {
                         "pair.request" -> {
                             val deviceId = request.optString("deviceId")
                             val clientNonce = request.optString("clientNonce")
+                            val sharedSessionId = request.optString("sessionId")
+                            if (sharedSessionId.matches(Regex("[a-fA-F0-9]{12}"))) {
+                                sessionId = sharedSessionId.lowercase(Locale.US)
+                                sessionContext.set(sessionId)
+                            }
                             val savedToken = getPreferences(MODE_PRIVATE)
                                 .getString("pairedToken.$deviceId", null)
                             if (deviceId.isNotBlank() && savedToken != null &&
@@ -266,6 +275,7 @@ class MainActivity : Activity() {
                             } else ""
                             if (expected.isNotEmpty() && secureEquals(expected, suppliedProof)) {
                                 paired = true
+                                outcome = "online"
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
                                 runOnUiThread { statusView.text = "Switch paired: $remote" }
@@ -301,12 +311,17 @@ class MainActivity : Activity() {
                 }
             }
         } catch (_: SocketTimeoutException) {
-            if (running.get()) appendLog("Client timed out after ${SESSION_IO_TIMEOUT_MS}ms: $remote")
+            outcome = "connection_timeout"
+            if (running.get()) appendLog("[session=$sessionId] Client timed out after ${SESSION_IO_TIMEOUT_MS}ms: $remote")
         } catch (error: Exception) {
-            if (running.get()) appendLog("Client error: ${error.message}")
+            outcome = if (running.get()) "transport_error" else "cancelled"
+            if (running.get()) appendLog("[session=$sessionId] Client error: ${error.message}")
+        } finally {
+            appendLog("[session=$sessionId] Client disconnected: $remote outcome=$outcome")
+            writeDiagnosticReport(sessionId, remote, outcome)
+            activeClients.remove(socket)
+            sessionContext.remove()
         }
-        appendLog("Client disconnected: $remote")
-        activeClients.remove(socket)
     }
 
     private fun message(type: String) = JSONObject()
@@ -380,7 +395,33 @@ class MainActivity : Activity() {
         val type = payload.optString("type", "unknown")
         val deviceId = payload.optString("deviceId")
         val suffix = if (deviceId.isBlank()) "" else " deviceId=$deviceId"
-        appendLog("$direction $type peer=$peer$suffix")
+        val session = sessionContext.get()
+        val prefix = if (session == null) "" else "[session=$session] "
+        appendLog("$prefix$direction $type peer=$peer$suffix")
+    }
+
+    private fun writeDiagnosticReport(sessionId: String, peer: String, outcome: String) {
+        synchronized(logLock) {
+            try {
+                val directory = java.io.File(
+                    getExternalFilesDir(null) ?: filesDir, "diagnostics")
+                directory.mkdirs()
+                val target = java.io.File(directory, "latest.json")
+                val temporary = java.io.File(directory, "latest.json.tmp")
+                temporary.writeText(JSONObject()
+                    .put("schemaVersion", 1)
+                    .put("platform", "android")
+                    .put("protocolVersion", PROTOCOL_VERSION)
+                    .put("sessionId", sessionId)
+                    .put("peer", peer)
+                    .put("outcome", outcome)
+                    .put("timestamp", System.currentTimeMillis())
+                    .toString())
+                if (target.exists()) target.delete()
+                temporary.renameTo(target)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun scanSwitchQr() {
@@ -439,7 +480,25 @@ class MainActivity : Activity() {
 
     private fun migratePreferences() {
         val preferences = getPreferences(MODE_PRIVATE)
-        val version = preferences.getInt("schemaVersion", 0)
+        val version = try {
+            preferences.getInt("schemaVersion", 0)
+        } catch (_: ClassCastException) {
+            appendLog("Settings schema was corrupt; resetting version metadata")
+            preferences.edit().remove("schemaVersion").apply()
+            0
+        }
+        val invalidPairings = preferences.all
+            .filter { (key, value) ->
+                key.startsWith("pairedToken.") &&
+                    (value !is String || !value.matches(Regex("[A-F0-9]{64}")))
+            }
+            .keys
+        if (invalidPairings.isNotEmpty()) {
+            val editor = preferences.edit()
+            invalidPairings.forEach(editor::remove)
+            editor.apply()
+            appendLog("Removed ${invalidPairings.size} corrupt pairing credential(s)")
+        }
         when {
             version == 0 -> {
                 preferences.edit().putInt("schemaVersion", SETTINGS_SCHEMA_VERSION).apply()

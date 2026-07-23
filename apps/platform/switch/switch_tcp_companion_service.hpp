@@ -9,13 +9,14 @@
 #include <thread>
 
 #include "switch_auto/companion.hpp"
+#include "switch_auto/event_queue.hpp"
 #include "switch_device_identity.hpp"
 
 namespace switch_auto::platform::switch_platform {
 
 class SwitchTcpCompanionService final : public CompanionService {
 public:
-    SwitchTcpCompanionService();
+    explicit SwitchTcpCompanionService(EventQueue& events);
     ~SwitchTcpCompanionService() override;
 
     Result<void, CompanionError> connect(
@@ -26,6 +27,7 @@ public:
     CompanionStatus status() const override;
     std::optional<CompanionPairingInfo> pairingInfo() const override;
     bool hasTrustedCompanion() const override { return hasTrustedCompanion_; }
+    void setStatusHandler(StatusHandler handler) override;
 
 private:
     void runAutomatic();
@@ -44,6 +46,9 @@ private:
     std::condition_variable waitCondition_;
     std::optional<SwitchDeviceIdentity> identity_;
     std::atomic<bool> hasTrustedCompanion_{false};
+    EventQueue& events_;
+    std::mutex handlerMutex_;
+    StatusHandler statusHandler_;
 };
 
 }  // namespace switch_auto::platform::switch_platform

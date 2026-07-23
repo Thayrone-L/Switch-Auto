@@ -23,9 +23,12 @@ int main() {
         "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
     const std::string clientNonce = "0123456789abcdef0123456789abcdef";
     const std::string serverNonce = "fedcba9876543210fedcba9876543210";
-    const auto pairRequest = session.begin(pairingToken, "TESTDEVICE", clientNonce);
+    const auto pairRequest = session.begin(
+        pairingToken, "TESTDEVICE", clientNonce, "abcdef123456");
     assert(pairRequest);
     assert(pairRequest.value().find("\"type\":\"pair.request\"") != std::string::npos);
+    assert(pairRequest.value().find("\"sessionId\":\"abcdef123456\"") !=
+        std::string::npos);
     assert(pairRequest.value().find("pairingToken") == std::string::npos);
     assert(session.status().state == CompanionConnectionState::Pairing);
 
@@ -93,6 +96,37 @@ int main() {
     session.transportDisconnected(CompanionError::ConnectionClosed);
     assert(session.status().state == CompanionConnectionState::Reconnecting);
     assert(session.status().lastError == CompanionError::ConnectionClosed);
+
+    // Transport drop is recoverable and preserves a precise failure reason.
+    CompanionSession droppedSession;
+    droppedSession.transportConnected();
+    droppedSession.transportDisconnected(CompanionError::ConnectionTimeout);
+    assert(droppedSession.status().state == CompanionConnectionState::Reconnecting);
+    assert(droppedSession.status().lastError == CompanionError::ConnectionTimeout);
+
+    // A server-side pairing rejection is permanent for the current attempt.
+    CompanionSession rejectedSession;
+    assert(rejectedSession.begin(pairingToken, "TESTDEVICE", clientNonce));
+    const auto rejected = rejectedSession.receive(
+        R"({"version":2,"type":"pair.rejected","reason":"unknown_device"})");
+    assert(!rejected);
+    assert(rejected.error() == CompanionError::PairingRejected);
+    assert(rejectedSession.status().state == CompanionConnectionState::Failed);
+
+    // A new transport attempt can leave reconnecting and restart the handshake.
+    droppedSession.transportConnected();
+    assert(droppedSession.status().state == CompanionConnectionState::Connecting);
+    assert(droppedSession.begin(pairingToken, "TESTDEVICE", clientNonce));
+    assert(droppedSession.status().state == CompanionConnectionState::Pairing);
+
+    // Protocol versions fail closed before any message-specific processing.
+    CompanionSession incompatibleSession;
+    assert(incompatibleSession.begin(pairingToken, "TESTDEVICE", clientNonce));
+    const auto incompatible = incompatibleSession.receive(
+        R"({"version":99,"type":"pair.challenge"})");
+    assert(!incompatible);
+    assert(incompatible.error() == CompanionError::UnsupportedVersion);
+    assert(incompatibleSession.status().state == CompanionConnectionState::Failed);
 
     std::array<std::uint32_t, 16> smallPixels{};
     Canvas smallCanvas(smallPixels.data(), 4, 4, 4);

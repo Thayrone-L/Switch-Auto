@@ -15,6 +15,7 @@ using namespace brls::literals;
 
 MutableRuntimeService* DashboardView::runtime_ = nullptr;
 CompanionService* DashboardView::companion_ = nullptr;
+DashboardView* DashboardView::active_ = nullptr;
 
 namespace {
 
@@ -42,6 +43,7 @@ void updateRuntime(MutableRuntimeService& runtime) {
 }  // namespace
 
 DashboardView::DashboardView() {
+    active_ = this;
     inflateFromXMLRes("xml/views/dashboard.xml");
     connectionButton_->registerClickAction([](brls::View*) {
         CompanionService* service = companion_;
@@ -55,6 +57,7 @@ DashboardView::DashboardView() {
 
 DashboardView::~DashboardView() {
     refreshTimer_.stop();
+    if (active_ == this) active_ = nullptr;
 }
 
 brls::View* DashboardView::create() {
@@ -69,20 +72,21 @@ void DashboardView::setCompanionService(CompanionService* companion) {
     companion_ = companion;
 }
 
+void DashboardView::onCompanionStatus(const CompanionStatus& status) {
+    if (!active_) return;
+    active_->companionStatus_ = status;
+    if (runtime_) {
+        auto& state = runtime_->mutableState();
+        state.companionBatteryPercent = status.remoteBatteryPercent.value_or(-1);
+        state.companionConnected = status.state == CompanionConnectionState::Online;
+    }
+    active_->refresh();
+}
+
 void DashboardView::refresh() {
     if (!runtime_) return;
     updateRuntime(*runtime_);
-    auto& mutableState = runtime_->mutableState();
-    CompanionConnectionState connectionState = CompanionConnectionState::Disconnected;
-    if (companion_) {
-        companion_->update();
-        const CompanionStatus companionStatus = companion_->status();
-        connectionState = companionStatus.state;
-        const auto remoteBattery = companionStatus.remoteBatteryPercent;
-        mutableState.companionBatteryPercent = remoteBattery.value_or(-1);
-        mutableState.companionConnected =
-            connectionState == CompanionConnectionState::Online;
-    }
+    const CompanionConnectionState connectionState = companionStatus_.state;
     const auto& state = runtime_->current();
 
     char buffer[32]{};
@@ -121,11 +125,8 @@ void DashboardView::refresh() {
             connectionLabel_->setText("switch_auto/status/connected"_i18n);
             break;
         case CompanionConnectionState::Reconnecting:
-            if (companion_) {
-                const CompanionStatus retry = companion_->status();
-                connectionLabel_->setText(brls::getStr("switch_auto/status/retrying",
-                    retry.retryDelaySeconds, retry.retryAttempt));
-            }
+            connectionLabel_->setText(brls::getStr("switch_auto/status/retrying",
+                companionStatus_.retryDelaySeconds, companionStatus_.retryAttempt));
             break;
         case CompanionConnectionState::Failed:
             connectionLabel_->setText("switch_auto/status/failed"_i18n);

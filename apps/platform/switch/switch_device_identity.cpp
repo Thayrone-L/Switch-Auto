@@ -10,35 +10,79 @@ namespace switch_auto::platform::switch_platform {
 namespace {
 
 constexpr const char* kIdentityDirectory = "sdmc:/switch/switch-auto/identity";
-constexpr const char* kIdentityPath = "sdmc:/switch/switch-auto/identity/device.key";
+constexpr const char* kIdentityPath = "sdmc:/switch/switch-auto/identity/device.identity";
+constexpr const char* kIdentityTemporaryPath =
+    "sdmc:/switch/switch-auto/identity/device.identity.tmp";
+constexpr const char* kIdentityCorruptPath =
+    "sdmc:/switch/switch-auto/identity/device.identity.corrupt";
+constexpr const char* kLegacyIdentityPath =
+    "sdmc:/switch/switch-auto/identity/device.key";
+constexpr unsigned char kIdentityHeader[] = {'S', 'A', 'I', 'D', 1};
 
-bool readSecret(std::array<unsigned char, 32>& secret) {
+enum class ReadResult { Missing, Valid, Corrupt };
+
+ReadResult readSecret(std::array<unsigned char, 32>& secret) {
     std::FILE* file = std::fopen(kIdentityPath, "rb");
+    if (!file) return ReadResult::Missing;
+    unsigned char header[sizeof(kIdentityHeader)]{};
+    const bool valid =
+        std::fread(header, 1, sizeof(header), file) == sizeof(header) &&
+        std::memcmp(header, kIdentityHeader, sizeof(header)) == 0 &&
+        std::fread(secret.data(), 1, secret.size(), file) == secret.size() &&
+        std::fgetc(file) == EOF;
+    std::fclose(file);
+    return valid ? ReadResult::Valid : ReadResult::Corrupt;
+}
+
+bool saveSecret(const std::array<unsigned char, 32>& secret) {
+    ::mkdir(kIdentityDirectory, 0700);
+    std::FILE* file = std::fopen(kIdentityTemporaryPath, "wb");
     if (!file) return false;
-    const bool valid = std::fread(secret.data(), 1, secret.size(), file) == secret.size();
+    const bool saved =
+        std::fwrite(kIdentityHeader, 1, sizeof(kIdentityHeader), file) ==
+            sizeof(kIdentityHeader) &&
+        std::fwrite(secret.data(), 1, secret.size(), file) == secret.size();
+    std::fflush(file);
+    std::fclose(file);
+    if (!saved) return false;
+    std::remove(kIdentityPath);
+    return std::rename(kIdentityTemporaryPath, kIdentityPath) == 0;
+}
+
+bool readLegacySecret(std::array<unsigned char, 32>& secret) {
+    std::FILE* file = std::fopen(kLegacyIdentityPath, "rb");
+    if (!file) return false;
+    const bool valid =
+        std::fread(secret.data(), 1, secret.size(), file) == secret.size() &&
+        std::fgetc(file) == EOF;
     std::fclose(file);
     return valid;
 }
 
 bool createSecret(std::array<unsigned char, 32>& secret) {
-    ::mkdir(kIdentityDirectory, 0700);
     if (R_FAILED(csrngInitialize())) return false;
     const ::Result randomResult = csrngGetRandomBytes(secret.data(), secret.size());
     csrngExit();
     if (R_FAILED(randomResult)) return false;
 
-    std::FILE* file = std::fopen(kIdentityPath, "wb");
-    if (!file) return false;
-    const bool saved = std::fwrite(secret.data(), 1, secret.size(), file) == secret.size();
-    std::fclose(file);
-    return saved;
+    return saveSecret(secret);
 }
 
 }  // namespace
 
 Result<SwitchDeviceIdentity, CompanionError> SwitchDeviceIdentity::loadOrCreate() {
     SwitchDeviceIdentity identity;
-    if (!readSecret(identity.secret_) && !createSecret(identity.secret_)) {
+    const ReadResult stored = readSecret(identity.secret_);
+    if (stored == ReadResult::Corrupt) {
+        std::remove(kIdentityCorruptPath);
+        std::rename(kIdentityPath, kIdentityCorruptPath);
+    }
+    if (stored != ReadResult::Valid && readLegacySecret(identity.secret_)) {
+        if (!saveSecret(identity.secret_)) {
+            return Result<SwitchDeviceIdentity, CompanionError>::failure(
+                CompanionError::TransportUnavailable);
+        }
+    } else if (stored != ReadResult::Valid && !createSecret(identity.secret_)) {
         return Result<SwitchDeviceIdentity, CompanionError>::failure(
             CompanionError::TransportUnavailable);
     }

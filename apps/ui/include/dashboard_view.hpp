@@ -15,12 +15,15 @@ public:
     static brls::View* create();
     static void setRuntimeService(MutableRuntimeService* runtime);
     static void setCompanionService(CompanionService* companion);
+    static void onCompanionStatus(const CompanionStatus& status);
 
 private:
     void refresh();
 
     static MutableRuntimeService* runtime_;
     static CompanionService* companion_;
+    static DashboardView* active_;
+    CompanionStatus companionStatus_;
     brls::RepeatingTimer refreshTimer_;
 
     BRLS_BIND(brls::Label, clockLabel_, "clock");
