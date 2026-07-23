@@ -28,6 +28,7 @@ public:
     std::optional<CompanionPairingInfo> pairingInfo() const override;
     bool hasTrustedCompanion() const override { return hasTrustedCompanion_; }
     void setStatusHandler(StatusHandler handler) override;
+    void panMap(float deltaXPixels, float deltaYPixels) override;
 
 private:
     void runAutomatic();
@@ -50,6 +51,9 @@ private:
     EventQueue& events_;
     std::mutex handlerMutex_;
     StatusHandler statusHandler_;
+    std::mutex mapCommandMutex_;
+    float pendingMapPanX_ = 0.0f;
+    float pendingMapPanY_ = 0.0f;
 };
 
 }  // namespace switch_auto::platform::switch_platform

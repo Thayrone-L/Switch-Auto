@@ -92,6 +92,13 @@ DashboardView::DashboardView() {
     widgetLayout_ = loadWidgetLayout();
     inflateFromXMLRes("xml/views/dashboard.xml");
     applyWidgetLayout();
+    mapImage_->addGestureRecognizer(new brls::PanGestureRecognizer(
+        [](brls::PanGestureStatus status, brls::Sound*) {
+            if (status.state == brls::GestureState::STAY && companion_) {
+                companion_->panMap(status.delta.x, status.delta.y);
+            }
+        },
+        brls::PanAxis::ANY));
     connectionButton_->registerClickAction([](brls::View*) {
         CompanionService* service = companion_;
         brls::sync([service]() { openConnectionScreen(service); });

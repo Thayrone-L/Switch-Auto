@@ -31,7 +31,7 @@ constexpr int kDiscoveryTimeoutSeconds = 1;
 constexpr auto kMinimumReconnectDelay = std::chrono::seconds(1);
 constexpr auto kMaximumReconnectDelay = std::chrono::seconds(16);
 constexpr int kBackoffJitterPercent = 20;
-constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
+constexpr auto kHeartbeatInterval = std::chrono::milliseconds(200);
 constexpr std::size_t kMaximumMessageSize = 4096;
 constexpr const char* kTrustedCompanionPath =
     "sdmc:/switch/switch-auto/identity/companion.json";
@@ -612,10 +612,23 @@ CompanionError SwitchTcpCompanionService::runSession(
                 : std::nullopt;
             const std::uint32_t customizationRevision =
                 appliedCustomizationRevision_.load();
+            float mapPanX = 0.0f;
+            float mapPanY = 0.0f;
+            {
+                std::lock_guard<std::mutex> lock(mapCommandMutex_);
+                mapPanX = pendingMapPanX_;
+                mapPanY = pendingMapPanY_;
+                pendingMapPanX_ = 0.0f;
+                pendingMapPanY_ = 0.0f;
+            }
             const auto ping = session.heartbeat(localBattery,
                 customizationRevision > 0
                     ? std::optional<std::uint32_t>(customizationRevision)
-                    : std::nullopt);
+                    : std::nullopt,
+                mapPanX != 0.0f || mapPanY != 0.0f
+                    ? std::optional<float>(mapPanX) : std::nullopt,
+                mapPanX != 0.0f || mapPanY != 0.0f
+                    ? std::optional<float>(mapPanY) : std::nullopt);
             if (!ping || !sendAll(socketFd, ping.value()) ||
                 !receiveLine(socketFd, response)) {
                 failure = ping ? socketFailure() : ping.error();
@@ -690,6 +703,13 @@ void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
 void SwitchTcpCompanionService::setStatusHandler(StatusHandler handler) {
     std::lock_guard<std::mutex> lock(handlerMutex_);
     statusHandler_ = std::move(handler);
+}
+
+void SwitchTcpCompanionService::panMap(
+    float deltaXPixels, float deltaYPixels) {
+    std::lock_guard<std::mutex> lock(mapCommandMutex_);
+    pendingMapPanX_ += deltaXPixels;
+    pendingMapPanY_ += deltaYPixels;
 }
 
 bool SwitchTcpCompanionService::waitForRetry(std::chrono::milliseconds delay) {

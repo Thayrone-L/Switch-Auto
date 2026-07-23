@@ -15,6 +15,8 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
 import org.maplibre.android.snapshotter.MapSnapshotter
 import java.io.ByteArrayOutputStream
+import kotlin.math.cos
+import kotlin.math.pow
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -28,9 +30,13 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     @Volatile private var lastLocation: Location? = null
     @Volatile private var latestMapFrame: ByteArray? = null
     private val mapFrameId = AtomicInteger(0)
+    private var lastSentMapFrameId = 0
     private val snapshotInProgress = AtomicBoolean(false)
     private var lastSnapshotTime = 0L
     private var snapshotter: MapSnapshotter? = null
+    @Volatile private var cameraOffsetLatitude = 0.0
+    @Volatile private var cameraOffsetLongitude = 0.0
+    @Volatile private var explorationExpiresAt = 0L
 
     override fun initialize(context: CompanionWidgetContext) {
         super.initialize(context)
@@ -76,7 +82,8 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .filter(locationManager::isProviderEnabled)
             .forEach { provider ->
-                locationManager.requestLocationUpdates(provider, 1_000L, 1f, this)
+                locationManager.requestLocationUpdates(
+                    provider, LOCATION_UPDATE_INTERVAL_MS, 0f, this)
                 locationManager.getLastKnownLocation(provider)?.let(::acceptLocation)
             }
         context.stateChanged()
@@ -85,6 +92,23 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     private fun stopUpdates() = locationManager.removeUpdates(this)
 
     override fun onLocationChanged(location: Location) = acceptLocation(location)
+
+    override fun onMessage(message: JSONObject) {
+        if (message.optString("type") != "ping") return
+        val viewport = message.optJSONObject("mapViewport") ?: return
+        val location = lastLocation ?: return
+        val deltaX = viewport.optDouble("deltaX", 0.0)
+        val deltaY = viewport.optDouble("deltaY", 0.0)
+        if (!deltaX.isFinite() || !deltaY.isFinite()) return
+        val metersPerPixel = 156543.03392 *
+            cos(Math.toRadians(location.latitude)) / 2.0.pow(MAP_ZOOM)
+        cameraOffsetLatitude += deltaY * metersPerPixel / 111320.0
+        val longitudeScale =
+            (111320.0 * cos(Math.toRadians(location.latitude))).coerceAtLeast(1.0)
+        cameraOffsetLongitude -= deltaX * metersPerPixel / longitudeScale
+        explorationExpiresAt = System.currentTimeMillis() + EXPLORATION_TIMEOUT_MS
+        renderMap(location, force = true)
+    }
 
     private fun acceptLocation(location: Location) {
         val current = lastLocation
@@ -109,15 +133,18 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                     if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
                 .put("timestamp", location.time))
         }
-        latestMapFrame?.let { frame ->
+        val frameId = mapFrameId.get()
+        latestMapFrame?.takeIf { frameId != lastSentMapFrameId }?.let { frame ->
             target.put("mapFrame", JSONObject()
-                .put("id", mapFrameId.get())
+                .put("id", frameId)
                 .put("contentType", "image/jpeg")
                 .put("length", frame.size)
                 .put("width", MAP_WIDTH)
                 .put("height", MAP_HEIGHT))
+            lastSentMapFrameId = frameId
+            return frame
         }
-        return latestMapFrame
+        return null
     }
 
     override fun statusText(): String {
@@ -143,31 +170,44 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     private fun preferences() = context.activity.getSharedPreferences(
         "switch_auto_widget_gps", Context.MODE_PRIVATE)
 
-    private fun renderMap(location: Location) {
+    private fun renderMap(location: Location, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS ||
+        if ((!force && now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS) ||
             !snapshotInProgress.compareAndSet(false, true)) return
+        if (explorationExpiresAt > 0 && now >= explorationExpiresAt) {
+            cameraOffsetLatitude = 0.0
+            cameraOffsetLongitude = 0.0
+            explorationExpiresAt = 0L
+        }
         lastSnapshotTime = now
         context.activity.runOnUiThread {
+            val camera = CameraPosition.Builder()
+                .target(LatLng(
+                    (location.latitude + cameraOffsetLatitude).coerceIn(-85.0, 85.0),
+                    location.longitude + cameraOffsetLongitude))
+                .zoom(MAP_ZOOM)
+                .bearing(if (location.hasBearing()) location.bearing.toDouble() else 0.0)
+                .build()
             val options = MapSnapshotter.Options(MAP_WIDTH, MAP_HEIGHT)
                 .withPixelRatio(1f)
                 .withStyleBuilder(Style.Builder().fromUri(MAP_STYLE_URI))
-                .withCameraPosition(CameraPosition.Builder()
-                    .target(LatLng(location.latitude, location.longitude))
-                    .zoom(MAP_ZOOM)
-                    .bearing(if (location.hasBearing()) location.bearing.toDouble() else 0.0)
-                    .build())
-            snapshotter?.cancel()
-            snapshotter = MapSnapshotter(context.activity.applicationContext, options)
-            snapshotter?.start({ snapshot ->
+                .withCameraPosition(camera)
+            val activeSnapshotter = snapshotter
+                ?: MapSnapshotter(context.activity.applicationContext, options).also {
+                    snapshotter = it
+                }
+            activeSnapshotter.setCameraPosition(camera)
+            activeSnapshotter.start({ snapshot ->
                 val encoded = encodeSnapshot(snapshot.bitmap)
                 if (encoded != null) {
-                    synchronized(this@GpsWidget) {
+                    val frameId = synchronized(this@GpsWidget) {
                         latestMapFrame = encoded
                         mapFrameId.incrementAndGet()
                     }
-                    context.log(
-                        "Widget $id map frame ready: ${encoded.size} bytes (${MAP_WIDTH}x${MAP_HEIGHT})")
+                    if (frameId % MAP_LOG_EVERY_FRAMES == 1) {
+                        context.log(
+                            "Widget $id map stream: frame=$frameId size=${encoded.size} bytes")
+                    }
                 } else {
                     context.log(
                         "Widget $id map frame discarded: could not fit protocol limit")
@@ -221,7 +261,10 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         private const val MAP_ZOOM = 16.0
         private val MAP_JPEG_QUALITIES = intArrayOf(72, 60, 48, 36)
         private const val MAX_MAP_FRAME_BYTES = 512 * 1024
-        private const val MAP_SNAPSHOT_INTERVAL_MS = 3_000L
+        private const val MAP_SNAPSHOT_INTERVAL_MS = 200L
+        private const val LOCATION_UPDATE_INTERVAL_MS = 200L
+        private const val EXPLORATION_TIMEOUT_MS = 8_000L
+        private const val MAP_LOG_EVERY_FRAMES = 25
         private const val MAP_STYLE_URI =
             "https://tiles.openfreemap.org/styles/liberty"
         private const val MAP_ATTRIBUTION =

@@ -275,7 +275,9 @@ Result<void, CompanionError> CompanionSession::acceptBinaryPayload(
 
 Result<std::string, CompanionError> CompanionSession::heartbeat(
     std::optional<int> localBatteryPercent,
-    std::optional<std::uint32_t> customizationRevision) {
+    std::optional<std::uint32_t> customizationRevision,
+    std::optional<float> mapPanXPixels,
+    std::optional<float> mapPanYPixels) {
     if (status_.state != CompanionConnectionState::Online || pendingSequence_) {
         return Result<std::string, CompanionError>::failure(CompanionError::NotOnline);
     }
@@ -288,9 +290,15 @@ Result<std::string, CompanionError> CompanionSession::heartbeat(
         customizationRevision && *customizationRevision > 0
         ? ",\"customizationRevision\":" + std::to_string(*customizationRevision)
         : "";
+    const std::string mapViewportField =
+        mapPanXPixels && mapPanYPixels &&
+            (*mapPanXPixels != 0.0f || *mapPanYPixels != 0.0f)
+        ? ",\"mapViewport\":{\"deltaX\":" + std::to_string(*mapPanXPixels) +
+            ",\"deltaY\":" + std::to_string(*mapPanYPixels) + "}"
+        : "";
     return Result<std::string, CompanionError>::success(envelope(
         "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_) +
-        batteryField + customizationField));
+        batteryField + customizationField + mapViewportField));
 }
 
 void CompanionSession::transportDisconnected(CompanionError reason) {

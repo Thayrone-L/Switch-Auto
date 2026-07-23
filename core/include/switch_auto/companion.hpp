@@ -107,6 +107,10 @@ public:
     virtual std::optional<CompanionPairingInfo> pairingInfo() const = 0;
     virtual bool hasTrustedCompanion() const = 0;
     virtual void setStatusHandler(StatusHandler handler) = 0;
+    virtual void panMap(float deltaXPixels, float deltaYPixels) {
+        (void)deltaXPixels;
+        (void)deltaYPixels;
+    }
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,
@@ -121,7 +125,9 @@ public:
     Result<void, CompanionError> acceptBinaryPayload(std::vector<std::uint8_t> payload);
     Result<std::string, CompanionError> heartbeat(
         std::optional<int> localBatteryPercent = std::nullopt,
-        std::optional<std::uint32_t> customizationRevision = std::nullopt);
+        std::optional<std::uint32_t> customizationRevision = std::nullopt,
+        std::optional<float> mapPanXPixels = std::nullopt,
+        std::optional<float> mapPanYPixels = std::nullopt);
     void transportConnected();
     void transportDisconnected(CompanionError reason);
     void reset();

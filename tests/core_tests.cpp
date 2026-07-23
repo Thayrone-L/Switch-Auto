@@ -78,10 +78,13 @@ int main() {
     assert(!helloAck.value().has_value());
     assert(session.status().state == CompanionConnectionState::Online);
 
-    const auto ping = session.heartbeat(64);
+    const auto ping = session.heartbeat(
+        64, std::nullopt, 12.5f, -8.0f);
     assert(ping);
     assert(ping.value().find("\"sequence\":1") != std::string::npos);
     assert(ping.value().find("\"switchBatteryPercent\":64") != std::string::npos);
+    assert(ping.value().find("\"mapViewport\"") != std::string::npos);
+    assert(ping.value().find("\"deltaX\":12.500000") != std::string::npos);
     const auto pong = session.receive(
         R"({"version":3,"type":"pong","sequence":1,"phoneBatteryPercent":73})");
     assert(pong);
