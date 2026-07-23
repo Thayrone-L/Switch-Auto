@@ -124,6 +124,11 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    @Deprecated("The Companion stays active while driving")
+    override fun onBackPressed() {
+        moveTaskToBack(true)
+    }
+
     private fun buildUi(): ScrollView {
         val density = resources.displayMetrics.density
         val padding = (20 * density).toInt()
@@ -304,6 +309,8 @@ class MainActivity : Activity() {
 
     private fun startServer() {
         if (!running.compareAndSet(false, true)) return
+        CompanionForegroundService.start(
+            this, ::gpsWidget.isInitialized && gpsWidget.isEnabled())
         refreshConnectionDetails()
         statusView.text = "Starting..."
         toggleButton.text = "Stop server"
@@ -342,6 +349,7 @@ class MainActivity : Activity() {
 
     private fun stopServer() {
         running.set(false)
+        CompanionForegroundService.stop(this)
         serverSocket?.close()
         discoverySocket?.close()
         activeClients.forEach { client -> runCatching { client.close() } }
@@ -708,7 +716,15 @@ class MainActivity : Activity() {
             activity = this,
             permissions = permissionManager,
             log = ::appendLog,
-            stateChanged = { runOnUiThread(::refreshWidgetViews) })
+            stateChanged = {
+                runOnUiThread {
+                    refreshWidgetViews()
+                    if (running.get()) {
+                        CompanionForegroundService.start(
+                            this, ::gpsWidget.isInitialized && gpsWidget.isEnabled())
+                    }
+                }
+            })
         widgetRegistry = CompanionWidgetRegistry(context)
         batteryWidget = BatteryWidget()
         gpsWidget = GpsWidget()
