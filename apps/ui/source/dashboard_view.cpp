@@ -92,7 +92,7 @@ DashboardView::DashboardView() {
     widgetLayout_ = loadWidgetLayout();
     inflateFromXMLRes("xml/views/dashboard.xml");
     applyWidgetLayout();
-    mapImage_->addGestureRecognizer(new brls::PanGestureRecognizer(
+    gpsWidgetBox_->addGestureRecognizer(new brls::PanGestureRecognizer(
         [](brls::PanGestureStatus status, brls::Sound*) {
             if (status.state == brls::GestureState::STAY && companion_) {
                 companion_->panMap(status.delta.x, status.delta.y);

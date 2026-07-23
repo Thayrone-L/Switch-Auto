@@ -32,6 +32,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     private val mapFrameId = AtomicInteger(0)
     private var lastSentMapFrameId = 0
     private val snapshotInProgress = AtomicBoolean(false)
+    private val rerenderRequested = AtomicBoolean(false)
     private var lastSnapshotTime = 0L
     private var snapshotter: MapSnapshotter? = null
     @Volatile private var cameraOffsetLatitude = 0.0
@@ -107,6 +108,8 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
             (111320.0 * cos(Math.toRadians(location.latitude))).coerceAtLeast(1.0)
         cameraOffsetLongitude -= deltaX * metersPerPixel / longitudeScale
         explorationExpiresAt = System.currentTimeMillis() + EXPLORATION_TIMEOUT_MS
+        context.log(
+            "Widget $id viewport pan: dx=${deltaX.toInt()} dy=${deltaY.toInt()}")
         renderMap(location, force = true)
     }
 
@@ -172,8 +175,11 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
 
     private fun renderMap(location: Location, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if ((!force && now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS) ||
-            !snapshotInProgress.compareAndSet(false, true)) return
+        if (!force && now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS) return
+        if (!snapshotInProgress.compareAndSet(false, true)) {
+            if (force) rerenderRequested.set(true)
+            return
+        }
         if (explorationExpiresAt > 0 && now >= explorationExpiresAt) {
             cameraOffsetLatitude = 0.0
             cameraOffsetLongitude = 0.0
@@ -213,11 +219,19 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                         "Widget $id map frame discarded: could not fit protocol limit")
                 }
                 snapshotInProgress.set(false)
+                renderPendingFrame()
                 context.stateChanged()
             }, { error ->
                 snapshotInProgress.set(false)
+                renderPendingFrame()
                 context.log("Widget $id map snapshot failed: $error")
             })
+        }
+    }
+
+    private fun renderPendingFrame() {
+        if (rerenderRequested.compareAndSet(true, false)) {
+            lastLocation?.let { renderMap(it, force = true) }
         }
     }
 
