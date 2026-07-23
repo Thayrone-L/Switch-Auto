@@ -47,12 +47,21 @@ struct CompanionEndpoint {
     std::uint16_t port = kCompanionPort;
 };
 
+struct RemoteLocation {
+    double latitude = 0.0;
+    double longitude = 0.0;
+    double accuracyMeters = 0.0;
+    std::optional<double> speedMetersPerSecond;
+    std::optional<double> bearingDegrees;
+};
+
 struct CompanionStatus {
     CompanionConnectionState state = CompanionConnectionState::Disconnected;
     CompanionError lastError = CompanionError::None;
     std::optional<std::string> sessionToken;
     std::uint32_t lastSequence = 0;
     std::optional<int> remoteBatteryPercent;
+    std::optional<RemoteLocation> remoteLocation;
     std::string sessionId;
     std::string endpointAddress;
     std::uint32_t retryAttempt = 0;

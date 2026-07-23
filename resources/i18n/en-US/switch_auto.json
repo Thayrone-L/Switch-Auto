@@ -40,6 +40,12 @@
         "no_media": "NO MEDIA",
         "companion_offline": "ANDROID COMPANION OFFLINE"
     },
+    "gps": {
+        "title": "GPS",
+        "waiting": "WAITING FOR LOCATION",
+        "no_position": "ENABLE GPS IN THE COMPANION",
+        "accuracy": "LOCATION LOCKED · ±{} m"
+    },
     "core": {
         "title": "SWITCH AUTO",
         "subtitle": "DEVELOPMENT CORE",

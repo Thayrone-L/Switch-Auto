@@ -37,7 +37,6 @@ void updateRuntime(MutableRuntimeService& runtime) {
     if (R_SUCCEEDED(psmGetBatteryChargePercentage(&battery))) {
         state.switchBatteryPercent = static_cast<int>(battery);
     }
-    state.speedKph = 0;
 #endif
 }
 
@@ -80,6 +79,9 @@ void DashboardView::onCompanionStatus(const CompanionStatus& status) {
         auto& state = runtime_->mutableState();
         state.companionBatteryPercent = status.remoteBatteryPercent.value_or(-1);
         state.companionConnected = status.state == CompanionConnectionState::Online;
+        state.speedKph = status.remoteLocation && status.remoteLocation->speedMetersPerSecond
+            ? static_cast<int>(*status.remoteLocation->speedMetersPerSecond * 3.6 + 0.5)
+            : 0;
     }
     active_->refresh();
 }
@@ -106,6 +108,17 @@ void DashboardView::refresh() {
     std::snprintf(buffer, sizeof(buffer), "%d", state.speedKph);
     speedLabel_->setText(buffer);
     speedUnitLabel_->setText(tr("switch_auto/dashboard/speed_unit"));
+    if (companionStatus_.remoteLocation) {
+        const auto& location = *companionStatus_.remoteLocation;
+        gpsStatusLabel_->setText(brls::getStr("switch_auto/gps/accuracy",
+            static_cast<int>(location.accuracyMeters + 0.5)));
+        std::snprintf(buffer, sizeof(buffer), "%.5f, %.5f",
+            location.latitude, location.longitude);
+        gpsCoordinatesLabel_->setText(buffer);
+    } else {
+        gpsStatusLabel_->setText(tr("switch_auto/gps/waiting"));
+        gpsCoordinatesLabel_->setText(tr("switch_auto/gps/no_position"));
+    }
     switch (connectionState) {
         case CompanionConnectionState::Discovering:
             connectionLabel_->setText(tr("switch_auto/status/discovering"));

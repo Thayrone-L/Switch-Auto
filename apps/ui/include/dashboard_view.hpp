@@ -30,6 +30,8 @@ private:
     BRLS_BIND(brls::Label, batteryLabel_, "battery");
     BRLS_BIND(brls::Label, speedLabel_, "speed");
     BRLS_BIND(brls::Label, speedUnitLabel_, "speed-unit");
+    BRLS_BIND(brls::Label, gpsStatusLabel_, "gps-status");
+    BRLS_BIND(brls::Label, gpsCoordinatesLabel_, "gps-coordinates");
     BRLS_BIND(brls::Label, connectionLabel_, "connection");
     BRLS_BIND(brls::Button, connectionButton_, "connection-button");
     BRLS_BIND(brls::Label, trackLabel_, "track");

@@ -47,7 +47,15 @@
 
         <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="24px">
             <brls:Box
-                width="auto" height="auto" axis="column" grow="1.0"
+                width="auto" height="118px" axis="column"
+                paddingTop="18px" paddingRight="24px" paddingBottom="18px" paddingLeft="24px"
+                backgroundColor="#111925" cornerRadius="24">
+                <brls:Label text="@i18n/switch_auto/gps/title" fontSize="17" height="30px" horizontalAlign="left" textColor="#f04455" />
+                <brls:Label id="gps-status" text="@i18n/switch_auto/gps/waiting" fontSize="20" height="34px" horizontalAlign="left" />
+                <brls:Label id="gps-coordinates" text="@i18n/switch_auto/gps/no_position" fontSize="15" height="auto" horizontalAlign="left" textColor="#91a0b5" />
+            </brls:Box>
+            <brls:Box
+                width="auto" height="auto" axis="column" grow="1.0" marginTop="16px"
                 paddingTop="30px" paddingRight="30px" paddingBottom="30px" paddingLeft="30px"
                 backgroundColor="#111925" cornerRadius="24">
                 <brls:Label text="@i18n/switch_auto/dashboard/now_playing" fontSize="18" height="42px" horizontalAlign="left" textColor="#91a0b5" />

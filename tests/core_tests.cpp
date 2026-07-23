@@ -87,6 +87,15 @@ int main() {
     assert(session.status().lastSequence == 1);
     assert(session.status().remoteBatteryPercent == 73);
 
+    const auto locationPing = session.heartbeat();
+    assert(locationPing);
+    const auto locationPong = session.receive(
+        R"({"version":2,"type":"pong","sequence":2,"phoneBatteryPercent":73,"location":{"latitude":-23.55052,"longitude":-46.63331,"accuracyMeters":4.5,"speedMetersPerSecond":13.9,"bearingDegrees":180.0,"timestamp":1780000000000}})");
+    assert(locationPong);
+    assert(session.status().remoteLocation.has_value());
+    assert(session.status().remoteLocation->latitude == -23.55052);
+    assert(session.status().remoteLocation->speedMetersPerSecond == 13.9);
+
     const auto secondPing = session.heartbeat();
     assert(secondPing);
     const auto mismatchedPong = session.receive(

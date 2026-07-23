@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 namespace switch_auto {
 namespace {
@@ -33,6 +34,22 @@ std::optional<std::uint32_t> unsignedField(std::string_view json, std::string_vi
     while (position < json.size() && std::isdigit(static_cast<unsigned char>(json[position]))) {
         value = value * 10 + static_cast<std::uint32_t>(json[position++] - '0');
     }
+    return value;
+}
+
+std::optional<double> numberField(std::string_view json, std::string_view name) {
+    const std::string key = "\"" + std::string(name) + "\"";
+    std::size_t position = json.find(key);
+    if (position == std::string_view::npos) return std::nullopt;
+    position = json.find(':', position + key.size());
+    if (position == std::string_view::npos) return std::nullopt;
+    ++position;
+    while (position < json.size() &&
+           std::isspace(static_cast<unsigned char>(json[position]))) ++position;
+    const std::string remaining(json.substr(position));
+    char* end = nullptr;
+    const double value = std::strtod(remaining.c_str(), &end);
+    if (end == remaining.c_str()) return std::nullopt;
     return value;
 }
 
@@ -134,6 +151,29 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
         const auto remoteBattery = unsignedField(line, "phoneBatteryPercent");
         if (remoteBattery && *remoteBattery <= 100) {
             status_.remoteBatteryPercent = static_cast<int>(*remoteBattery);
+        }
+        if (line.find("\"location\"") != std::string_view::npos) {
+            const auto latitude = numberField(line, "latitude");
+            const auto longitude = numberField(line, "longitude");
+            const auto accuracy = numberField(line, "accuracyMeters");
+            if (latitude && longitude && accuracy &&
+                *latitude >= -90.0 && *latitude <= 90.0 &&
+                *longitude >= -180.0 && *longitude <= 180.0 &&
+                *accuracy >= 0.0) {
+                RemoteLocation location{
+                    *latitude, *longitude, *accuracy, std::nullopt, std::nullopt};
+                const auto speed = numberField(line, "speedMetersPerSecond");
+                if (speed && *speed >= 0.0) location.speedMetersPerSecond = *speed;
+                const auto bearing = numberField(line, "bearingDegrees");
+                if (bearing && *bearing >= 0.0 && *bearing <= 360.0) {
+                    location.bearingDegrees = *bearing;
+                }
+                status_.remoteLocation = location;
+            } else {
+                status_.remoteLocation.reset();
+            }
+        } else {
+            status_.remoteLocation.reset();
         }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);

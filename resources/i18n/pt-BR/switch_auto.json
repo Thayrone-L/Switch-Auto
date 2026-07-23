@@ -40,6 +40,12 @@
         "no_media": "SEM MÍDIA",
         "companion_offline": "COMPANION ANDROID OFFLINE"
     },
+    "gps": {
+        "title": "GPS",
+        "waiting": "AGUARDANDO LOCALIZAÇÃO",
+        "no_position": "ATIVE O GPS NO COMPANION",
+        "accuracy": "LOCALIZAÇÃO FIXADA · ±{} m"
+    },
     "core": {
         "title": "SWITCH AUTO",
         "subtitle": "NÚCLEO DE DESENVOLVIMENTO",

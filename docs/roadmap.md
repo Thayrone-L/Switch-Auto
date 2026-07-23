@@ -51,6 +51,8 @@
 ## Marco 2 — Mídia e GPS
 
 - [x] widget GPS inicial com posição, precisão, velocidade e direção;
+- [x] receber e apresentar telemetria GPS na dashboard Borealis;
+- definir framing binário e canais separados para mapas/áudio;
 - foreground service para manter transporte e GPS com a tela bloqueada;
 - metadados da sessão de mídia;
 - play, pause, faixa anterior e próxima;
