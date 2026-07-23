@@ -115,9 +115,20 @@ void DashboardView::refresh() {
         std::snprintf(buffer, sizeof(buffer), "%.5f, %.5f",
             location.latitude, location.longitude);
         gpsCoordinatesLabel_->setText(buffer);
+        if (companionStatus_.remoteMapFrame &&
+            companionStatus_.remoteMapFrame->id != displayedMapFrameId_ &&
+            !companionStatus_.remoteMapFrame->data.empty()) {
+            const auto& frame = *companionStatus_.remoteMapFrame;
+            mapImage_->setImageFromMem(
+                frame.data.data(), static_cast<int>(frame.data.size()));
+            mapImage_->setScalingType(brls::ImageScalingType::FILL);
+            displayedMapFrameId_ = frame.id;
+        }
     } else {
         gpsStatusLabel_->setText(tr("switch_auto/gps/waiting"));
         gpsCoordinatesLabel_->setText(tr("switch_auto/gps/no_position"));
+        mapImage_->clear();
+        displayedMapFrameId_ = 0;
     }
     switch (connectionState) {
         case CompanionConnectionState::Discovering:

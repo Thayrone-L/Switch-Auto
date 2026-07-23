@@ -24,7 +24,7 @@
 - [x] backoff exponencial cancelável limitado a 16 segundos;
 - [x] jitter de reconexão, timeout de I/O e conexão TCP cancelável;
 - [x] autenticação mútua desafio–resposta com HMAC-SHA256;
-- [x] protocolo v2 sem transmissão da credencial de pareamento;
+- [x] protocolo v3 sem transmissão da credencial e com payload binário limitado;
 - [x] Companion Android inicia o servidor em todo startup;
 - [x] revogação de credenciais e encerramento de sessões ativas;
 - [x] estado de pareamento versionado com migração e fallback de corrupção;
@@ -52,7 +52,8 @@
 
 - [x] widget GPS inicial com posição, precisão, velocidade e direção;
 - [x] receber e apresentar telemetria GPS na dashboard Borealis;
-- definir framing binário e canais separados para mapas/áudio;
+- [x] framing binário para snapshots de mapa sem Base64;
+- separar canais de controle, mapas e áudio para streaming contínuo;
 - foreground service para manter transporte e GPS com a tela bloqueada;
 - metadados da sessão de mídia;
 - play, pause, faixa anterior e próxima;

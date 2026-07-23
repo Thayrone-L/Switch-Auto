@@ -8,6 +8,8 @@
 namespace switch_auto {
 namespace {
 
+constexpr std::size_t kMaximumMapFrameSize = 512 * 1024;
+
 std::optional<std::string> stringField(std::string_view json, std::string_view name) {
     const std::string key = "\"" + std::string(name) + "\"";
     std::size_t position = json.find(key);
@@ -61,7 +63,8 @@ bool validPairingCode(std::string_view code) {
 }
 
 std::string envelope(std::string_view payload) {
-    return "{\"version\":2," + std::string(payload) + "}\n";
+    return "{\"version\":" + std::to_string(kProtocolVersion) + "," +
+        std::string(payload) + "}\n";
 }
 
 }  // namespace
@@ -175,11 +178,50 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
         } else {
             status_.remoteLocation.reset();
         }
+        pendingMapFrame_.reset();
+        pendingBinaryLength_.reset();
+        if (line.find("\"mapFrame\"") != std::string_view::npos) {
+            const auto id = unsignedField(line, "id");
+            const auto length = unsignedField(line, "length");
+            const auto width = unsignedField(line, "width");
+            const auto height = unsignedField(line, "height");
+            const auto contentType = stringField(line, "contentType");
+            if (!id || !length || !width || !height || !contentType ||
+                *length == 0 || *length > kMaximumMapFrameSize ||
+                *width == 0 || *width > 1280 || *height == 0 || *height > 720 ||
+                *contentType != "image/jpeg") {
+                return fail(CompanionError::InvalidMessage);
+            }
+            pendingMapFrame_ = RemoteMapFrame{
+                *id, *width, *height, *contentType, {}};
+            pendingBinaryLength_ = *length;
+        } else {
+            status_.remoteMapFrame.reset();
+        }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
     }
 
     return fail(CompanionError::UnexpectedMessage);
+}
+
+std::optional<std::size_t> CompanionSession::pendingBinaryLength() const {
+    return pendingBinaryLength_;
+}
+
+Result<void, CompanionError> CompanionSession::acceptBinaryPayload(
+    std::vector<std::uint8_t> payload) {
+    if (!pendingMapFrame_ || !pendingBinaryLength_ ||
+        payload.size() != *pendingBinaryLength_) {
+        pendingMapFrame_.reset();
+        pendingBinaryLength_.reset();
+        return Result<void, CompanionError>::failure(CompanionError::InvalidMessage);
+    }
+    pendingMapFrame_->data = std::move(payload);
+    status_.remoteMapFrame = std::move(pendingMapFrame_);
+    pendingMapFrame_.reset();
+    pendingBinaryLength_.reset();
+    return Result<void, CompanionError>::success();
 }
 
 Result<std::string, CompanionError> CompanionSession::heartbeat(
@@ -211,6 +253,8 @@ void CompanionSession::reset() {
     deviceId_.clear();
     clientNonce_.clear();
     serverNonce_.clear();
+    pendingMapFrame_.reset();
+    pendingBinaryLength_.reset();
 }
 
 Result<std::optional<std::string>, CompanionError> CompanionSession::fail(CompanionError error) {

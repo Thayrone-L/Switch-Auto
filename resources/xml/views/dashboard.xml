@@ -39,10 +39,18 @@
     <brls:Box width="auto" height="auto" axis="row" grow="1.0" marginTop="22px">
         <brls:Box
             width="58%" height="auto" axis="column"
-            justifyContent="center" alignItems="center"
             backgroundColor="#111925" cornerRadius="24">
-            <brls:Label id="speed" text="0" fontSize="112" height="135px" />
-            <brls:Label id="speed-unit" text="@i18n/switch_auto/dashboard/speed_unit" fontSize="25" height="45px" textColor="#91a0b5" />
+            <brls:Image
+                id="map-image"
+                width="auto" height="auto" grow="1.0"
+                scalingType="fill" />
+            <brls:Box
+                width="auto" height="86px" axis="row"
+                justifyContent="center" alignItems="center"
+                paddingLeft="24px" paddingRight="24px">
+                <brls:Label id="speed" text="0" fontSize="58" width="150px" horizontalAlign="right" />
+                <brls:Label id="speed-unit" text="@i18n/switch_auto/dashboard/speed_unit" fontSize="20" width="80px" marginLeft="12px" textColor="#91a0b5" />
+            </brls:Box>
         </brls:Box>
 
         <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="24px">

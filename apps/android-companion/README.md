@@ -75,5 +75,11 @@ O GPS começa desabilitado. Nesta fase ele funciona enquanto o processo do
 Companion está ativo. A etapa seguinte será mover transporte e localização para
 um foreground service, permitindo operação previsível com a tela bloqueada.
 
+O mapa inicial usa MapLibre Native e `MapSnapshotter`. O Android renderiza um
+quadro 640×360 centrado na posição atual, comprime em JPEG e o envia ao Switch
+como payload binário do protocolo v3. O JSON transporta apenas metadados e limita
+cada quadro a 512 KiB. O estilo público `demotiles` é exclusivo do protótipo e
+deve ser substituído por um provedor de tiles apropriado antes de produção.
+
 Este protótipo ainda não oferece criptografia de transporte e não deve ser
 tratado como o protocolo final.

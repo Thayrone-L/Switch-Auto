@@ -37,7 +37,7 @@ int main() {
     const std::string serverProof = crypto::hmacSha256Hex(pairingToken,
         "server|TESTDEVICE|" + clientNonce + "|" + serverNonce);
     const auto challenge = session.receive(
-        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        "{\"version\":3,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
         serverNonce + "\",\"proof\":\"" + serverProof + "\"}");
     assert(challenge);
     assert(challenge.value().has_value());
@@ -45,7 +45,7 @@ int main() {
     assert(session.status().state == CompanionConnectionState::Authenticating);
 
     const auto pairAccepted = session.receive(
-        R"({"version":2,"type":"pair.accepted","sessionToken":"test-token"})");
+        R"({"version":3,"type":"pair.accepted","sessionToken":"test-token"})");
     assert(pairAccepted);
     assert(pairAccepted.value().has_value());
     assert(pairAccepted.value()->find("\"type\":\"hello\"") != std::string::npos);
@@ -54,7 +54,7 @@ int main() {
     CompanionSession tamperedSession;
     assert(tamperedSession.begin(pairingToken, "TESTDEVICE", clientNonce));
     const auto tampered = tamperedSession.receive(
-        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        "{\"version\":3,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
         serverNonce + "\",\"proof\":\"" + std::string(64, '0') + "\"}");
     assert(!tampered);
     assert(tampered.error() == CompanionError::AuthenticationFailed);
@@ -63,7 +63,7 @@ int main() {
     const std::string freshClientNonce = "11111111111111111111111111111111";
     assert(replaySession.begin(pairingToken, "TESTDEVICE", freshClientNonce));
     const auto replayed = replaySession.receive(
-        "{\"version\":2,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
+        "{\"version\":3,\"type\":\"pair.challenge\",\"serverNonce\":\"" +
         serverNonce + "\",\"proof\":\"" + serverProof + "\"}");
     assert(!replayed);
     assert(replayed.error() == CompanionError::AuthenticationFailed);
@@ -72,7 +72,7 @@ int main() {
         "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8");
 
     const auto helloAck = session.receive(
-        R"({"version":2,"type":"hello.ack","server":"android-companion"})");
+        R"({"version":3,"type":"hello.ack","server":"android-companion"})");
     assert(helloAck);
     assert(!helloAck.value().has_value());
     assert(session.status().state == CompanionConnectionState::Online);
@@ -82,7 +82,7 @@ int main() {
     assert(ping.value().find("\"sequence\":1") != std::string::npos);
     assert(ping.value().find("\"switchBatteryPercent\":64") != std::string::npos);
     const auto pong = session.receive(
-        R"({"version":2,"type":"pong","sequence":1,"phoneBatteryPercent":73})");
+        R"({"version":3,"type":"pong","sequence":1,"phoneBatteryPercent":73})");
     assert(pong);
     assert(session.status().lastSequence == 1);
     assert(session.status().remoteBatteryPercent == 73);
@@ -90,16 +90,27 @@ int main() {
     const auto locationPing = session.heartbeat();
     assert(locationPing);
     const auto locationPong = session.receive(
-        R"({"version":2,"type":"pong","sequence":2,"phoneBatteryPercent":73,"location":{"latitude":-23.55052,"longitude":-46.63331,"accuracyMeters":4.5,"speedMetersPerSecond":13.9,"bearingDegrees":180.0,"timestamp":1780000000000}})");
+        R"({"version":3,"type":"pong","sequence":2,"phoneBatteryPercent":73,"location":{"latitude":-23.55052,"longitude":-46.63331,"accuracyMeters":4.5,"speedMetersPerSecond":13.9,"bearingDegrees":180.0,"timestamp":1780000000000}})");
     assert(locationPong);
     assert(session.status().remoteLocation.has_value());
     assert(session.status().remoteLocation->latitude == -23.55052);
     assert(session.status().remoteLocation->speedMetersPerSecond == 13.9);
 
+    const auto mapPing = session.heartbeat();
+    assert(mapPing);
+    const auto mapPong = session.receive(
+        R"({"version":3,"type":"pong","sequence":3,"location":{"latitude":-23.55052,"longitude":-46.63331,"accuracyMeters":4.5},"mapFrame":{"id":7,"contentType":"image/jpeg","length":4,"width":640,"height":360}})");
+    assert(mapPong);
+    assert(session.pendingBinaryLength() == 4);
+    assert(session.acceptBinaryPayload({0xff, 0xd8, 0xff, 0xd9}));
+    assert(session.status().remoteMapFrame.has_value());
+    assert(session.status().remoteMapFrame->id == 7);
+    assert(session.status().remoteMapFrame->data.size() == 4);
+
     const auto secondPing = session.heartbeat();
     assert(secondPing);
     const auto mismatchedPong = session.receive(
-        R"({"version":2,"type":"pong","sequence":99})");
+        R"({"version":3,"type":"pong","sequence":99})");
     assert(!mismatchedPong);
     assert(mismatchedPong.error() == CompanionError::HeartbeatMismatch);
     assert(session.status().state == CompanionConnectionState::Failed);
@@ -119,7 +130,7 @@ int main() {
     CompanionSession rejectedSession;
     assert(rejectedSession.begin(pairingToken, "TESTDEVICE", clientNonce));
     const auto rejected = rejectedSession.receive(
-        R"({"version":2,"type":"pair.rejected","reason":"unknown_device"})");
+        R"({"version":3,"type":"pair.rejected","reason":"unknown_device"})");
     assert(!rejected);
     assert(rejected.error() == CompanionError::PairingRejected);
     assert(rejectedSession.status().state == CompanionConnectionState::Failed);

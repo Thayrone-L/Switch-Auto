@@ -115,6 +115,18 @@ bool receiveLine(int socketFd, std::string& output) {
     return false;
 }
 
+bool receiveExact(int socketFd, std::vector<std::uint8_t>& output, std::size_t size) {
+    output.resize(size);
+    std::size_t offset = 0;
+    while (offset < size) {
+        const ssize_t received = ::recv(
+            socketFd, output.data() + offset, size - offset, 0);
+        if (received <= 0) return false;
+        offset += static_cast<std::size_t>(received);
+    }
+    return true;
+}
+
 int openSocket(const CompanionEndpoint& endpoint,
     const std::atomic<bool>& stopRequested, CompanionError& failure) {
     failure = CompanionError::TransportUnavailable;
@@ -255,7 +267,8 @@ std::optional<CompanionEndpoint> discoverCompanion(
         ::connect(socketFd, reinterpret_cast<sockaddr*>(&unconnected), sizeof(unconnected));
     }
     const std::string probe =
-        "{\"version\":2,\"type\":\"discover.request\",\"deviceId\":\"" +
+        "{\"version\":" + std::to_string(kProtocolVersion) +
+        ",\"type\":\"discover.request\",\"deviceId\":\"" +
         identity.deviceId + "\"}\n";
 
     std::optional<CompanionEndpoint> endpoint;
@@ -275,7 +288,8 @@ std::optional<CompanionEndpoint> discoverCompanion(
         const ssize_t received = ::recvfrom(socketFd, buffer, sizeof(buffer) - 1, 0,
             reinterpret_cast<sockaddr*>(&sender), &senderLength);
         if (received > 0 && std::strstr(buffer, "\"type\":\"discover.reply\"") &&
-            std::strstr(buffer, "\"version\":2")) {
+            std::strstr(buffer,
+                ("\"version\":" + std::to_string(kProtocolVersion)).c_str())) {
             char address[INET_ADDRSTRLEN]{};
             if (::inet_ntop(AF_INET, &sender.sin_addr, address, sizeof(address))) {
                 endpoint = CompanionEndpoint{address, kCompanionPort};
@@ -523,8 +537,19 @@ CompanionError SwitchTcpCompanionService::runSession(
                 break;
             }
             const auto pong = session.receive(response);
+            if (!pong) {
+                failure = pong.error();
+            } else if (const auto binaryLength = session.pendingBinaryLength()) {
+                std::vector<std::uint8_t> binaryPayload;
+                if (!receiveExact(socketFd, binaryPayload, *binaryLength)) {
+                    failure = socketFailure();
+                } else {
+                    const auto accepted = session.acceptBinaryPayload(
+                        std::move(binaryPayload));
+                    if (!accepted) failure = accepted.error();
+                }
+            }
             publishSession();
-            if (!pong) failure = pong.error();
         }
 
     ::shutdown(socketFd, SHUT_RDWR);

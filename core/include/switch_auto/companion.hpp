@@ -5,13 +5,14 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "switch_auto/result.hpp"
 
 namespace switch_auto {
 
 inline constexpr std::uint16_t kCompanionPort = 38471;
-inline constexpr int kProtocolVersion = 2;
+inline constexpr int kProtocolVersion = 3;
 
 enum class CompanionConnectionState {
     Disconnected,
@@ -55,6 +56,14 @@ struct RemoteLocation {
     std::optional<double> bearingDegrees;
 };
 
+struct RemoteMapFrame {
+    std::uint32_t id = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::string contentType;
+    std::vector<std::uint8_t> data;
+};
+
 struct CompanionStatus {
     CompanionConnectionState state = CompanionConnectionState::Disconnected;
     CompanionError lastError = CompanionError::None;
@@ -62,6 +71,7 @@ struct CompanionStatus {
     std::uint32_t lastSequence = 0;
     std::optional<int> remoteBatteryPercent;
     std::optional<RemoteLocation> remoteLocation;
+    std::optional<RemoteMapFrame> remoteMapFrame;
     std::string sessionId;
     std::string endpointAddress;
     std::uint32_t retryAttempt = 0;
@@ -99,6 +109,8 @@ public:
         std::string_view pairingToken, std::string_view deviceId,
         std::string_view clientNonce, std::string_view sessionId = {});
     Result<std::optional<std::string>, CompanionError> receive(std::string_view line);
+    std::optional<std::size_t> pendingBinaryLength() const;
+    Result<void, CompanionError> acceptBinaryPayload(std::vector<std::uint8_t> payload);
     Result<std::string, CompanionError> heartbeat(std::optional<int> localBatteryPercent = std::nullopt);
     void transportConnected();
     void transportDisconnected(CompanionError reason);
@@ -116,6 +128,8 @@ private:
     std::string deviceId_;
     std::string clientNonce_;
     std::string serverNonce_;
+    std::optional<RemoteMapFrame> pendingMapFrame_;
+    std::optional<std::size_t> pendingBinaryLength_;
 };
 
 const char* toString(CompanionConnectionState state);

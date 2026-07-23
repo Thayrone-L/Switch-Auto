@@ -35,8 +35,9 @@ class BatteryWidget : BaseCompanionWidget() {
         }
     }
 
-    override fun contributeTelemetry(target: JSONObject) {
+    override fun contributeTelemetry(target: JSONObject): ByteArray? {
         target.put("phoneBatteryPercent", phoneBatteryPercent)
+        return null
     }
 
     override fun statusText(): String =

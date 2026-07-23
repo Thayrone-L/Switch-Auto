@@ -5,7 +5,18 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import org.json.JSONObject
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.Style
+import org.maplibre.android.snapshotter.MapSnapshotter
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class GpsWidget : BaseCompanionWidget(), LocationListener {
     override val id = "core.gps"
@@ -15,6 +26,11 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     private lateinit var locationManager: LocationManager
     private var enabled = false
     @Volatile private var lastLocation: Location? = null
+    @Volatile private var latestMapFrame: ByteArray? = null
+    private val mapFrameId = AtomicInteger(0)
+    private val snapshotInProgress = AtomicBoolean(false)
+    private var lastSnapshotTime = 0L
+    private var snapshotter: MapSnapshotter? = null
 
     override fun initialize(context: CompanionWidgetContext) {
         super.initialize(context)
@@ -74,12 +90,14 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         val current = lastLocation
         if (current == null || location.time >= current.time || location.accuracy < current.accuracy) {
             lastLocation = location
+            renderMap(location)
             context.stateChanged()
         }
     }
 
-    override fun contributeTelemetry(target: JSONObject) {
-        if (!enabled) return
+    @Synchronized
+    override fun contributeTelemetry(target: JSONObject): ByteArray? {
+        if (!enabled) return null
         lastLocation?.let { location ->
             target.put("location", JSONObject()
                 .put("latitude", location.latitude)
@@ -91,6 +109,15 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                     if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
                 .put("timestamp", location.time))
         }
+        latestMapFrame?.let { frame ->
+            target.put("mapFrame", JSONObject()
+                .put("id", mapFrameId.get())
+                .put("contentType", "image/jpeg")
+                .put("length", frame.size)
+                .put("width", MAP_WIDTH)
+                .put("height", MAP_HEIGHT))
+        }
+        return latestMapFrame
     }
 
     override fun statusText(): String {
@@ -104,10 +131,71 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
 
     override fun suspend() { stopUpdates(); super.suspend() }
     override fun resume() { super.resume(); if (enabled) startUpdates() }
-    override fun dispose() { stopUpdates(); super.dispose() }
+    override fun dispose() {
+        stopUpdates()
+        snapshotter?.cancel()
+        snapshotter = null
+        super.dispose()
+    }
     override fun onProviderEnabled(provider: String) = startUpdates()
     override fun onProviderDisabled(provider: String) = context.stateChanged()
 
     private fun preferences() = context.activity.getSharedPreferences(
         "switch_auto_widget_gps", Context.MODE_PRIVATE)
+
+    private fun renderMap(location: Location) {
+        val now = System.currentTimeMillis()
+        if (now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS ||
+            !snapshotInProgress.compareAndSet(false, true)) return
+        lastSnapshotTime = now
+        context.activity.runOnUiThread {
+            val options = MapSnapshotter.Options(MAP_WIDTH, MAP_HEIGHT)
+                .withStyleBuilder(Style.Builder().fromUri(MAP_STYLE_URI))
+                .withCameraPosition(CameraPosition.Builder()
+                    .target(LatLng(location.latitude, location.longitude))
+                    .zoom(MAP_ZOOM)
+                    .bearing(if (location.hasBearing()) location.bearing.toDouble() else 0.0)
+                    .build())
+            snapshotter?.cancel()
+            snapshotter = MapSnapshotter(context.activity.applicationContext, options)
+            snapshotter?.start({ snapshot ->
+                val encoded = encodeSnapshot(snapshot.bitmap)
+                synchronized(this@GpsWidget) {
+                    latestMapFrame = encoded
+                    mapFrameId.incrementAndGet()
+                }
+                snapshotInProgress.set(false)
+                context.stateChanged()
+            }, { error ->
+                snapshotInProgress.set(false)
+                context.log("Widget $id map snapshot failed: $error")
+            })
+        }
+    }
+
+    private fun encodeSnapshot(source: Bitmap): ByteArray {
+        val mutable = source.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(mutable)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(240, 68, 85)
+        }
+        canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 5f
+        paint.color = Color.WHITE
+        canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
+        return ByteArrayOutputStream().use { output ->
+            mutable.compress(Bitmap.CompressFormat.JPEG, MAP_JPEG_QUALITY, output)
+            output.toByteArray()
+        }
+    }
+
+    companion object {
+        private const val MAP_WIDTH = 640
+        private const val MAP_HEIGHT = 360
+        private const val MAP_ZOOM = 16.0
+        private const val MAP_JPEG_QUALITY = 72
+        private const val MAP_SNAPSHOT_INTERVAL_MS = 3_000L
+        private const val MAP_STYLE_URI = "https://demotiles.maplibre.org/style.json"
+    }
 }

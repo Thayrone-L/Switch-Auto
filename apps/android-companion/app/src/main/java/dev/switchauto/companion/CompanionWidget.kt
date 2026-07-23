@@ -21,7 +21,7 @@ interface CompanionWidget {
     fun initialize(context: CompanionWidgetContext)
     fun activate()
     fun onMessage(message: JSONObject)
-    fun contributeTelemetry(target: JSONObject)
+    fun contributeTelemetry(target: JSONObject): ByteArray?
     fun suspend()
     fun resume()
     fun dispose()
@@ -38,7 +38,7 @@ abstract class BaseCompanionWidget : CompanionWidget {
     }
     override fun activate() { state = CompanionWidgetState.ACTIVE }
     override fun onMessage(message: JSONObject) = Unit
-    override fun contributeTelemetry(target: JSONObject) = Unit
+    override fun contributeTelemetry(target: JSONObject): ByteArray? = null
     override fun suspend() { state = CompanionWidgetState.SUSPENDED }
     override fun resume() { state = CompanionWidgetState.ACTIVE }
     override fun dispose() { state = CompanionWidgetState.DISPOSED }
@@ -74,11 +74,16 @@ class CompanionWidgetRegistry(private val context: CompanionWidgetContext) {
         }
     }
 
-    fun contributeTelemetry(target: JSONObject) {
+    fun contributeTelemetry(target: JSONObject): ByteArray? {
+        var binaryPayload: ByteArray? = null
         activeWidgets().forEach { widget ->
             runCatching { widget.contributeTelemetry(target) }
+                .onSuccess { contribution ->
+                    if (binaryPayload == null) binaryPayload = contribution
+                }
                 .onFailure { context.log("Widget ${widget.id} telemetry error: ${it.message}") }
         }
+        return binaryPayload
     }
 
     fun all(): List<CompanionWidget> = widgets.toList()

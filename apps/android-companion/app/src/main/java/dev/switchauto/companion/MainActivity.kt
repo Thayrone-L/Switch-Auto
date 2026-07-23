@@ -43,8 +43,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import org.maplibre.android.MapLibre
 
-private const val PROTOCOL_VERSION = 2
+private const val PROTOCOL_VERSION = 3
 private const val SERVER_PORT = 38471
 private const val DISCOVERY_PORT = 38472
 private const val SETTINGS_SCHEMA_VERSION = 1
@@ -78,6 +79,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapLibre.getInstance(this)
         setContentView(buildUi())
         permissionManager = AndroidPermissionManager(this)
         initializeWidgets()
@@ -407,11 +409,12 @@ class MainActivity : Activity() {
                             widgetRegistry.handleMessage(request)
                             val response = message("pong")
                                 .put("sequence", request.optInt("sequence"))
-                            widgetRegistry.contributeTelemetry(response)
+                            val binaryPayload =
+                                widgetRegistry.contributeTelemetry(response)
                             runOnUiThread {
                                 statusView.text = "Connected — ${batteryWidget.statusText()}"
                             }
-                            send(writer, response)
+                            send(writer, response, client.getOutputStream(), binaryPayload)
                         } else {
                             send(writer, message("error").put("code", "not_paired"))
                         }
@@ -438,11 +441,20 @@ class MainActivity : Activity() {
         .put("type", type)
         .put("timestamp", System.currentTimeMillis())
 
-    private fun send(writer: BufferedWriter, payload: JSONObject) {
+    private fun send(
+        writer: BufferedWriter,
+        payload: JSONObject,
+        output: java.io.OutputStream? = null,
+        binaryPayload: ByteArray? = null
+    ) {
         val line = payload.toString()
         writer.write(line)
         writer.newLine()
         writer.flush()
+        if (output != null && binaryPayload != null) {
+            output.write(binaryPayload)
+            output.flush()
+        }
         logProtocol("TX", payload, "Switch")
     }
 
