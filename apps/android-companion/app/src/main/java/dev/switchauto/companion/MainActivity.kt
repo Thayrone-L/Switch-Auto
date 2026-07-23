@@ -1,6 +1,7 @@
 package dev.switchauto.companion
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
@@ -36,6 +37,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -43,6 +45,7 @@ import javax.crypto.spec.SecretKeySpec
 private const val PROTOCOL_VERSION = 2
 private const val SERVER_PORT = 38471
 private const val DISCOVERY_PORT = 38472
+private const val SETTINGS_SCHEMA_VERSION = 1
 
 class MainActivity : Activity() {
     private val executor: ExecutorService = Executors.newCachedThreadPool()
@@ -53,23 +56,27 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var toggleButton: Button
     private lateinit var scanButton: Button
+    private lateinit var forgetButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
     private val logLock = Any()
+    private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
         refreshConnectionDetails()
+        migratePreferences()
         val hasTrustedSwitch = getPreferences(MODE_PRIVATE).all.keys
             .any { it.startsWith("pairedToken.") }
         if (hasTrustedSwitch) {
-            appendLog("Trusted Switch found; starting Companion automatically")
-            startServer()
+            appendLog("Trusted Switch found")
         } else {
-            appendLog("No trusted Switch yet; scan the QR to pair")
+            appendLog("No trusted Switch yet; server will accept discovery but reject unknown devices")
         }
+        appendLog("Starting Companion server automatically")
+        startServer()
     }
 
     override fun onDestroy() {
@@ -112,6 +119,13 @@ class MainActivity : Activity() {
             setOnClickListener { scanSwitchQr() }
         }
         root.addView(scanButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        forgetButton = Button(this).apply {
+            text = "Forget paired Switch"
+            isEnabled = hasStoredPairing()
+            setOnClickListener { confirmForgetPairing() }
+        }
+        root.addView(forgetButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(toggleButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -165,6 +179,8 @@ class MainActivity : Activity() {
         running.set(false)
         serverSocket?.close()
         discoverySocket?.close()
+        activeClients.forEach { client -> runCatching { client.close() } }
+        activeClients.clear()
         serverSocket = null
         discoverySocket = null
         if (::statusView.isInitialized) {
@@ -175,6 +191,7 @@ class MainActivity : Activity() {
     }
 
     private fun handleClient(socket: Socket) {
+        activeClients.add(socket)
         val remote = socket.inetAddress.hostAddress ?: "unknown"
         appendLog("Client connected: $remote")
         try {
@@ -278,6 +295,7 @@ class MainActivity : Activity() {
             appendLog("Client error: ${error.message}")
         }
         appendLog("Client disconnected: $remote")
+        activeClients.remove(socket)
     }
 
     private fun message(type: String) = JSONObject()
@@ -382,7 +400,9 @@ class MainActivity : Activity() {
             getPreferences(MODE_PRIVATE).edit()
                 .putString("pairedToken.$deviceId", token)
                 .putString("lastDeviceId", deviceId)
+                .putInt("schemaVersion", SETTINGS_SCHEMA_VERSION)
                 .apply()
+            forgetButton.isEnabled = true
             statusView.text = "Switch QR paired: $deviceId"
             appendLog("QR accepted for deviceId=$deviceId; secret stored in app preferences")
             if (!running.get()) startServer()
@@ -396,6 +416,46 @@ class MainActivity : Activity() {
     private fun refreshConnectionDetails() {
         if (!::addressView.isInitialized) return
         addressView.text = "IP: ${findIpv4Address() ?: "unavailable"}   Port: $SERVER_PORT"
+    }
+
+    private fun hasStoredPairing(): Boolean = getPreferences(MODE_PRIVATE).all.keys
+        .any { it.startsWith("pairedToken.") }
+
+    private fun migratePreferences() {
+        val preferences = getPreferences(MODE_PRIVATE)
+        val version = preferences.getInt("schemaVersion", 0)
+        when {
+            version == 0 -> {
+                preferences.edit().putInt("schemaVersion", SETTINGS_SCHEMA_VERSION).apply()
+                appendLog("Settings migrated to schema $SETTINGS_SCHEMA_VERSION")
+            }
+            version > SETTINGS_SCHEMA_VERSION ->
+                appendLog("Settings schema $version is newer than supported $SETTINGS_SCHEMA_VERSION")
+        }
+    }
+
+    private fun confirmForgetPairing() {
+        AlertDialog.Builder(this)
+            .setTitle("Forget paired Switch?")
+            .setMessage("The Switch will need to scan its QR again before it can reconnect.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Forget") { _, _ -> forgetPairing() }
+            .show()
+    }
+
+    private fun forgetPairing() {
+        val preferences = getPreferences(MODE_PRIVATE)
+        val editor = preferences.edit()
+        preferences.all.keys.filter { it.startsWith("pairedToken.") }
+            .forEach { editor.remove(it) }
+        editor.remove("lastDeviceId")
+            .putInt("schemaVersion", SETTINGS_SCHEMA_VERSION)
+            .apply()
+        activeClients.forEach { client -> runCatching { client.close() } }
+        activeClients.clear()
+        forgetButton.isEnabled = false
+        statusView.text = "Pairing removed — scan the Switch QR to pair again"
+        appendLog("All trusted Switch credentials were revoked")
     }
 
     private fun phoneBatteryPercent(): Int {

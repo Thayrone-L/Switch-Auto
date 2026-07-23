@@ -25,7 +25,49 @@ constexpr auto kMaximumReconnectDelay = std::chrono::seconds(16);
 constexpr auto kHeartbeatInterval = std::chrono::seconds(5);
 constexpr std::size_t kMaximumMessageSize = 4096;
 constexpr const char* kTrustedCompanionPath =
+    "sdmc:/switch/switch-auto/identity/companion.json";
+constexpr const char* kTrustedCompanionTemporaryPath =
+    "sdmc:/switch/switch-auto/identity/companion.json.tmp";
+constexpr const char* kTrustedCompanionCorruptPath =
+    "sdmc:/switch/switch-auto/identity/companion.json.corrupt";
+constexpr const char* kLegacyTrustedCompanionPath =
     "sdmc:/switch/switch-auto/identity/companion.trusted";
+
+bool saveTrustedCompanion() {
+    std::FILE* file = std::fopen(kTrustedCompanionTemporaryPath, "wb");
+    if (!file) return false;
+    const char payload[] = "{\"schemaVersion\":1,\"trusted\":true}\n";
+    const bool written = std::fwrite(payload, 1, sizeof(payload) - 1, file) ==
+        sizeof(payload) - 1;
+    std::fflush(file);
+    std::fclose(file);
+    if (!written) return false;
+    std::remove(kTrustedCompanionPath);
+    return std::rename(kTrustedCompanionTemporaryPath, kTrustedCompanionPath) == 0;
+}
+
+bool loadTrustedCompanion() {
+    if (std::FILE* file = std::fopen(kTrustedCompanionPath, "rb")) {
+        char buffer[160]{};
+        const std::size_t size = std::fread(buffer, 1, sizeof(buffer) - 1, file);
+        std::fclose(file);
+        const bool valid = size > 0 && std::strstr(buffer, "\"schemaVersion\":1") &&
+            std::strstr(buffer, "\"trusted\":true");
+        if (valid) return true;
+        std::remove(kTrustedCompanionCorruptPath);
+        std::rename(kTrustedCompanionPath, kTrustedCompanionCorruptPath);
+        brls::Logger::error("Companion settings: corrupt state backed up and ignored");
+        return false;
+    }
+    if (std::FILE* legacy = std::fopen(kLegacyTrustedCompanionPath, "rb")) {
+        std::fclose(legacy);
+        if (saveTrustedCompanion()) {
+            brls::Logger::info("Companion settings: migrated trusted state to schema 1");
+        }
+        return true;
+    }
+    return false;
+}
 
 bool sendAll(int socketFd, std::string_view payload) {
     while (!payload.empty()) {
@@ -167,10 +209,7 @@ SwitchTcpCompanionService::SwitchTcpCompanionService() {
     auto identity = SwitchDeviceIdentity::loadOrCreate();
     if (identity) {
         identity_ = std::move(identity.value());
-        if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "rb")) {
-            hasTrustedCompanion_ = true;
-            std::fclose(trusted);
-        }
+        hasTrustedCompanion_ = loadTrustedCompanion();
         brls::Logger::info("Companion identity ready: deviceId={}",
             identity_->pairingInfo().deviceId);
     } else {
@@ -346,9 +385,8 @@ CompanionError SwitchTcpCompanionService::runSession(
         if (failure == CompanionError::None) {
             brls::Logger::info("Companion protocol: mutually authenticated session online");
             hasTrustedCompanion_ = true;
-            if (std::FILE* trusted = std::fopen(kTrustedCompanionPath, "wb")) {
-                std::fputs("1\n", trusted);
-                std::fclose(trusted);
+            if (!saveTrustedCompanion()) {
+                brls::Logger::error("Companion settings: failed to persist trusted state");
             }
         }
     }

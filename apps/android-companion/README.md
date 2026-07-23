@@ -30,8 +30,12 @@ O APK será criado como `app/build/outputs/apk/debug/app-debug.apk`.
 6. Observe os eventos `discover.request`, `pair.request`, `hello` e `ping` no log.
 
 Depois do primeiro pareamento, o Companion memoriza o identificador e o token do
-Switch. Não é preciso ler novamente o QR nas conexões seguintes e o servidor é
-iniciado automaticamente quando o aplicativo for aberto.
+Switch. Não é preciso ler novamente o QR nas conexões seguintes. O servidor é
+sempre iniciado automaticamente quando o aplicativo for aberto, mesmo sem um
+pareamento; dispositivos desconhecidos continuam sendo rejeitados.
+
+O botão **Forget paired Switch** revoga todas as credenciais conhecidas e encerra
+as sessões ativas. Um novo QR precisa ser lido para permitir outra conexão.
 
 O log do Android fica no diretório externo privado do aplicativo, no arquivo
 `switch-auto.log`. O arquivo é rotacionado ao atingir 1 MiB e nunca registra o

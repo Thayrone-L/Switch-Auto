@@ -46,3 +46,10 @@ associação entre `deviceId` e token depois da leitura do QR. Credenciais, prov
 tokens de sessão são omitidos dos logs. A autenticação é mútua, mas o conteúdo da
 sessão ainda não é criptografado. TCP será substituído ou
 encapsulado por um transporte autenticado após validar a comunicação física.
+
+## Persistência e revogação
+
+O Android mantém `schemaVersion = 1` nas preferências de pareamento. O Switch
+persiste seu marcador em `identity/companion.json`, migra o marcador legado e
+move arquivos inválidos para `companion.json.corrupt`. Revogar no Android remove
+os tokens confiáveis e fecha imediatamente os sockets de clientes ativos.

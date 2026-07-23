@@ -24,6 +24,9 @@
 - [x] backoff exponencial cancelável limitado a 16 segundos;
 - [x] autenticação mútua desafio–resposta com HMAC-SHA256;
 - [x] protocolo v2 sem transmissão da credencial de pareamento;
+- [x] Companion Android inicia o servidor em todo startup;
+- [x] revogação de credenciais e encerramento de sessões ativas;
+- [x] estado de pareamento versionado com migração e fallback de corrupção;
 - carregar tema padrão e traduções `en-US`/`pt-BR`;
 - executar um widget oficial pelo lifecycle e Registry;
 - [x] conexão manual por endereço IP;
