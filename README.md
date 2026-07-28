@@ -77,7 +77,26 @@ Consulte:
 - [Arquitetura e princípios](docs/architecture.md);
 - [ADR 0001 — Fundação do Core](docs/decisions/0001-core-foundation.md);
 - [ADR 0003 — Borealis como camada de interface](docs/decisions/0003-borealis-ui.md);
+- [ADR 0004 — Android Auto como fonte de projeção](docs/decisions/0004-android-auto-host.md);
 - [Roadmap](docs/roadmap.md).
+
+## Direção atual
+
+Os primeiros protótipos validaram pareamento seguro, descoberta automática,
+reconexão, telemetria, localização, mídia, mapas e transporte de imagens entre
+Android e Switch.
+
+Também foi validada uma integração experimental com o Waze: o Companion abre o
+destino correto e consegue espelhar a tela por `MediaProjection`. Essa abordagem
+é mantida como prova de conceito, mas não será a base da experiência final
+porque depende do display físico ligado, preserva sua orientação e não fornece
+entrada remota.
+
+A direção adotada é tornar o Switch um host Android Auto experimental. O Android
+Auto fornece navegação, chamadas, notificações, mídia, áudio e comandos de voz.
+O Companion continua como a camada extra do Switch Auto para temas, layouts,
+telas de descanso, widgets, diagnósticos, sincronização e futuros mapas offline.
+O MapLibre permanece como fallback quando a projeção não estiver disponível.
 
 ## Escopo da V1
 
@@ -134,6 +153,11 @@ O projeto está no **Marco 0 — Fundação**:
 - [x] projeto compilável do Android Companion;
 - [x] primeira versão do protocolo;
 - [x] primeiros widgets executados pelo Core compartilhado.
+- [x] pareamento seguro e reconexão automática em rede local/hotspot;
+- [x] telemetria bilateral de bateria, GPS e mídia;
+- [x] MapLibre, busca por endereço, rota e interação por toque;
+- [x] prova de conceito de abertura e espelhamento do Waze;
+- [x] definição do Android Auto Host como próxima direção arquitetural.
 
 ## Desenvolvimento
 

@@ -207,6 +207,17 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
         } else {
             status_.remoteLocation.reset();
         }
+        status_.remoteMedia.reset();
+        if (const auto media = objectField(line, "media")) {
+            const auto title = stringField(*media, "title");
+            const auto artist = stringField(*media, "artist");
+            if (title && artist) {
+                status_.remoteMedia = RemoteMedia{
+                    *title,
+                    *artist,
+                    media->find("\"playing\":true") != std::string_view::npos};
+            }
+        }
         pendingMapFrame_.reset();
         pendingBinaryLength_.reset();
         if (const auto mapFrame = objectField(line, "mapFrame")) {
@@ -277,7 +288,8 @@ Result<std::string, CompanionError> CompanionSession::heartbeat(
     std::optional<int> localBatteryPercent,
     std::optional<std::uint32_t> customizationRevision,
     std::optional<float> mapPanXPixels,
-    std::optional<float> mapPanYPixels) {
+    std::optional<float> mapPanYPixels,
+    std::optional<std::string_view> mediaAction) {
     if (status_.state != CompanionConnectionState::Online || pendingSequence_) {
         return Result<std::string, CompanionError>::failure(CompanionError::NotOnline);
     }
@@ -296,9 +308,15 @@ Result<std::string, CompanionError> CompanionSession::heartbeat(
         ? ",\"mapViewport\":{\"deltaX\":" + std::to_string(*mapPanXPixels) +
             ",\"deltaY\":" + std::to_string(*mapPanYPixels) + "}"
         : "";
+    const std::string mediaControlField =
+        mediaAction && (*mediaAction == "play_pause" ||
+            *mediaAction == "previous" || *mediaAction == "next")
+        ? ",\"mediaControl\":{\"action\":\"" + std::string(*mediaAction) + "\"}"
+        : "";
     return Result<std::string, CompanionError>::success(envelope(
         "\"type\":\"ping\",\"sequence\":" + std::to_string(*pendingSequence_) +
-        batteryField + customizationField + mapViewportField));
+        batteryField + customizationField + mapViewportField +
+        mediaControlField));
 }
 
 void CompanionSession::transportDisconnected(CompanionError reason) {

@@ -23,13 +23,15 @@ class CompanionForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val locationActive = intent?.getBooleanExtra(EXTRA_LOCATION_ACTIVE, false) == true
+        val projectionActive =
+            intent?.getBooleanExtra(EXTRA_MEDIA_PROJECTION_ACTIVE, false) == true
         val notification = buildNotification(locationActive)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = if (locationActive) {
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            if (locationActive) type = type or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            }
+            if (projectionActive) type = type or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             startForeground(NOTIFICATION_ID, notification, type)
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -63,10 +65,16 @@ class CompanionForegroundService : Service() {
         private const val CHANNEL_ID = "switch_auto_runtime"
         private const val NOTIFICATION_ID = 1001
         private const val EXTRA_LOCATION_ACTIVE = "locationActive"
+        private const val EXTRA_MEDIA_PROJECTION_ACTIVE = "mediaProjectionActive"
 
-        fun start(context: Context, locationActive: Boolean) {
+        fun start(
+            context: Context,
+            locationActive: Boolean,
+            mediaProjectionActive: Boolean = false
+        ) {
             val intent = Intent(context, CompanionForegroundService::class.java)
                 .putExtra(EXTRA_LOCATION_ACTIVE, locationActive)
+                .putExtra(EXTRA_MEDIA_PROJECTION_ACTIVE, mediaProjectionActive)
             context.startForegroundService(intent)
         }
 

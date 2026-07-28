@@ -14,20 +14,20 @@
             text="--:--" fontSize="46"
             horizontalAlign="left" />
         <brls:Box
-            width="47%" height="54px" axis="row" alignItems="center"
-            paddingLeft="18px" paddingRight="6px"
+            width="74px" height="54px" axis="row" alignItems="center"
+            paddingLeft="6px" paddingRight="6px"
             backgroundColor="#111925" cornerRadius="18">
             <brls:Label
-                id="connection" width="auto" height="auto" grow="1.0"
-                text="@i18n/switch_auto/status/offline" fontSize="17"
+                id="connection" width="0px" height="0px"
+                text="" fontSize="1"
                 horizontalAlign="left" textColor="#91a0b5" />
             <brls:Button
                 id="connection-button"
-                text="@i18n/switch_auto/connection/open"
-                width="132px" height="42px" />
+                text="●"
+                width="54px" height="42px" />
         </brls:Box>
         <brls:Label
-            id="battery" width="35%" height="auto"
+            id="battery" width="auto" height="auto" grow="1.0"
             text="--%" fontSize="22"
             horizontalAlign="right" />
     </brls:Box>
@@ -69,6 +69,11 @@
                 <brls:Label text="@i18n/switch_auto/dashboard/now_playing" fontSize="18" height="42px" horizontalAlign="left" textColor="#91a0b5" />
                 <brls:Label id="track" text="@i18n/switch_auto/media/no_media" fontSize="30" height="64px" horizontalAlign="left" />
                 <brls:Label id="artist" text="@i18n/switch_auto/media/companion_offline" fontSize="20" height="auto" horizontalAlign="left" textColor="#91a0b5" grow="1.0" />
+                <brls:Box width="auto" height="58px" axis="row" marginTop="12px">
+                    <brls:Button id="media-previous" text="&lt;" width="60px" height="54px" />
+                    <brls:Button id="media-play-pause" text="PLAY" width="88px" height="54px" marginLeft="8px" />
+                    <brls:Button id="media-next" text="&gt;" width="60px" height="54px" marginLeft="8px" />
+                </brls:Box>
             </brls:Box>
         </brls:Box>
     </brls:Box>

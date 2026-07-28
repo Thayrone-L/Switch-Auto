@@ -21,6 +21,8 @@ DashboardView* DashboardView::active_ = nullptr;
 
 namespace {
 
+constexpr float kMapPanSensitivity = 0.40f;
+
 #ifdef __SWITCH__
 constexpr const char* kLayoutDirectory = "sdmc:/switch/switch-auto/config";
 constexpr const char* kLayoutPath =
@@ -95,13 +97,27 @@ DashboardView::DashboardView() {
     gpsWidgetBox_->addGestureRecognizer(new brls::PanGestureRecognizer(
         [](brls::PanGestureStatus status, brls::Sound*) {
             if (status.state == brls::GestureState::STAY && companion_) {
-                companion_->panMap(status.delta.x, status.delta.y);
+                companion_->panMap(
+                    -status.delta.x * kMapPanSensitivity,
+                    -status.delta.y * kMapPanSensitivity);
             }
         },
         brls::PanAxis::ANY));
     connectionButton_->registerClickAction([](brls::View*) {
         CompanionService* service = companion_;
         brls::sync([service]() { openConnectionScreen(service); });
+        return true;
+    });
+    mediaPreviousButton_->registerClickAction([](brls::View*) {
+        if (companion_) companion_->controlMedia("previous");
+        return true;
+    });
+    mediaPlayPauseButton_->registerClickAction([](brls::View*) {
+        if (companion_) companion_->controlMedia("play_pause");
+        return true;
+    });
+    mediaNextButton_->registerClickAction([](brls::View*) {
+        if (companion_) companion_->controlMedia("next");
         return true;
     });
     refresh();
@@ -245,16 +261,21 @@ void DashboardView::refresh() {
             connectionLabel_->setText(tr("switch_auto/status/offline"));
             break;
     }
-    connectionButton_->setText(
-        state.companionConnected ? tr("switch_auto/connection/details")
-                                 : tr("switch_auto/connection/open"));
+    connectionButton_->setText("●");
+    connectionButton_->setTextColor(state.companionConnected
+        ? nvgRGB(57, 211, 137) : nvgRGB(110, 124, 145));
     connectionButton_->setState(brls::ButtonState::ENABLED);
-    trackLabel_->setText(state.companionConnected
-                             ? state.track
-                             : tr("switch_auto/media/no_media"));
-    artistLabel_->setText(state.companionConnected
-                              ? state.artist
-                              : tr("switch_auto/media/companion_offline"));
+    trackLabel_->setText(companionStatus_.remoteMedia
+        ? companionStatus_.remoteMedia->title
+        : tr("switch_auto/media/no_media"));
+    artistLabel_->setText(companionStatus_.remoteMedia
+        ? companionStatus_.remoteMedia->artist
+        : (state.companionConnected
+            ? tr("switch_auto/media/no_media")
+            : tr("switch_auto/media/companion_offline")));
+    mediaPlayPauseButton_->setText(
+        companionStatus_.remoteMedia && companionStatus_.remoteMedia->playing
+            ? "PAUSE" : "PLAY");
 }
 
 }  // namespace switch_auto::ui

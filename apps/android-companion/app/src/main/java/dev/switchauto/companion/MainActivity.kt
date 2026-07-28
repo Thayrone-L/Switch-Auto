@@ -2,17 +2,21 @@ package dev.switchauto.companion
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.media.projection.MediaProjectionManager
+import android.provider.Settings
 import android.net.Uri
 import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -54,12 +58,15 @@ private const val SESSION_IO_TIMEOUT_MS = 8_000
 private const val DISCOVERY_POLL_TIMEOUT_MS = 1_000
 
 class MainActivity : Activity() {
+    private enum class AppPage { HOME, CONNECTION, CUSTOMIZATION, DIAGNOSTICS }
+
     private val executor: ExecutorService = Executors.newCachedThreadPool()
     private val running = AtomicBoolean(false)
     private lateinit var permissionManager: AndroidPermissionManager
     private lateinit var widgetRegistry: CompanionWidgetRegistry
     private lateinit var batteryWidget: BatteryWidget
     private lateinit var gpsWidget: GpsWidget
+    private lateinit var mediaWidget: MediaWidget
     private lateinit var customizationManager: CustomizationManager
 
     private lateinit var statusView: TextView
@@ -71,16 +78,31 @@ class MainActivity : Activity() {
     private lateinit var forgetButton: Button
     private lateinit var widgetStatusView: TextView
     private lateinit var gpsButton: Button
+    private lateinit var mediaButton: Button
+    private lateinit var routeStatusView: TextView
+    private lateinit var routeButton: Button
+    private lateinit var wazeButton: Button
+    private lateinit var streamWazeButton: Button
+    private lateinit var clearRouteButton: Button
     private lateinit var customizationStatusView: TextView
     private lateinit var themeButton: Button
     private lateinit var layoutButton: Button
     private lateinit var applyCustomizationButton: Button
+    private lateinit var homePage: LinearLayout
+    private lateinit var connectionPage: LinearLayout
+    private lateinit var customizationPage: LinearLayout
+    private lateinit var diagnosticsPage: LinearLayout
+    private lateinit var homeConnectionDot: View
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
+    @Volatile private var foregroundLocationActive: Boolean? = null
     private val logLock = Any()
     private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
     private val sessionContext = ThreadLocal<String>()
+    private val wazeNavigationProvider = WazeNavigationProvider()
+    private var selectedNavigationDestination: NavigationDestination? = null
+    private var screenCaptureController: ScreenCaptureController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -118,10 +140,55 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        screenCaptureController?.stop()
         if (::widgetRegistry.isInitialized) widgetRegistry.dispose()
         stopServer()
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::widgetRegistry.isInitialized) refreshWidgetViews()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SCREEN_CAPTURE_REQUEST_CODE) return
+        if (resultCode != RESULT_OK || data == null) {
+            appendLog("Waze screen capture permission denied")
+            refreshWidgetViews()
+            return
+        }
+        CompanionForegroundService.start(
+            this,
+            ::gpsWidget.isInitialized && gpsWidget.isEnabled(),
+            mediaProjectionActive = true
+        )
+        val controller = ScreenCaptureController(
+            activity = this,
+            onFrame = { frame -> gpsWidget.submitExternalMapFrame(frame) },
+            onStopped = {
+                runOnUiThread {
+                    gpsWidget.stopExternalMapStream()
+                    screenCaptureController = null
+                    refreshWidgetViews()
+                    appendLog("Waze screen stream stopped; MapLibre fallback restored")
+                }
+            },
+            log = ::appendLog
+        )
+        controller.start(resultCode, data)
+            .onSuccess {
+                screenCaptureController = controller
+                refreshWidgetViews()
+                selectedNavigationDestination?.let { startWazeNavigation() }
+            }
+            .onFailure { error ->
+                appendLog("Could not start Waze screen stream: ${error.message}")
+                gpsWidget.stopExternalMapStream()
+                refreshWidgetViews()
+            }
     }
 
     @Deprecated("The Companion stays active while driving")
@@ -139,17 +206,49 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(9, 13, 20))
         }
 
-        root.addView(label("SWITCH AUTO", 28f).apply {
-            setTextColor(Color.rgb(240, 68, 85))
-            setTypeface(typeface, Typeface.BOLD)
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("Switch Auto", 30f).apply {
+                setTextColor(Color.rgb(240, 68, 85))
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            addView(label("Seu carro, do seu jeito", 14f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+        }
+        header.addView(brand, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        homeConnectionDot = View(this).apply {
+            background = connectionDot(false)
+            contentDescription = "Switch desconectado"
+        }
+        val dotSize = (16 * density).toInt()
+        header.addView(homeConnectionDot, LinearLayout.LayoutParams(
+            dotSize, dotSize).apply {
+            marginEnd = (14 * density).toInt()
         })
-        root.addView(label("ANDROID COMPANION", 13f).apply {
-            setTextColor(Color.rgb(145, 160, 181))
-            setPadding(0, 0, 0, gap)
+        header.addView(Button(this).apply {
+            text = "Menu"
+            styleSecondaryButton(this)
+            setOnClickListener { showAppMenu() }
         })
+        root.addView(header)
+
+        fun page() = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, gap, 0, 0)
+        }
+        homePage = page()
+        connectionPage = page()
+        customizationPage = page()
+        diagnosticsPage = page()
 
         val statusCard = card(padding).apply {
-            addView(label("CONNECTION", 13f).apply {
+            addView(label("CONEXÃO", 13f).apply {
                 setTextColor(Color.rgb(145, 160, 181))
             })
         }
@@ -162,7 +261,7 @@ class MainActivity : Activity() {
         }
         statusCard.addView(statusView)
         statusCard.addView(addressView)
-        root.addView(statusCard)
+        connectionPage.addView(statusCard)
 
         toggleButton = Button(this).apply {
             text = "Start server"
@@ -184,32 +283,32 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT)
             params.topMargin = gap
             layoutParams = params
-            addView(label("PAIRED SWITCH", 13f).apply {
+            addView(label("SEU NINTENDO SWITCH", 13f).apply {
                 setTextColor(Color.rgb(145, 160, 181))
             })
             pairingStatusView = label(
-                if (hasStoredPairing()) "Ready for automatic connection"
-                else "No Switch paired yet", 19f).apply {
+                if (hasStoredPairing()) "Pronto para conexão automática"
+                else "Nenhum Switch pareado", 19f).apply {
                 setTextColor(Color.WHITE)
             }
             addView(pairingStatusView)
         }
         scanButton = Button(this).apply {
-            text = if (hasStoredPairing()) "PAIR ANOTHER SWITCH" else "SCAN SWITCH QR"
-            backgroundTintList = ColorStateList.valueOf(Color.rgb(240, 68, 85))
-            setTextColor(Color.WHITE)
+            text = if (hasStoredPairing()) "Conectar outro Switch" else "Ler QR do Switch"
+            stylePrimaryButton(this)
             setOnClickListener { scanSwitchQr() }
         }
         pairingCard.addView(scanButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
         forgetButton = Button(this).apply {
-            text = "FORGET PAIRED SWITCH"
+            text = "Remover pareamento"
+            styleSecondaryButton(this)
             isEnabled = hasStoredPairing()
             setOnClickListener { confirmForgetPairing() }
         }
         pairingCard.addView(forgetButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(pairingCard)
+        connectionPage.addView(pairingCard)
 
         val widgetsCard = card(padding).apply {
             val params = LinearLayout.LayoutParams(
@@ -217,23 +316,75 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT)
             params.topMargin = gap
             layoutParams = params
-            addView(label("COMPANION WIDGETS", 13f).apply {
+            addView(label("NAVEGAÇÃO", 13f).apply {
                 setTextColor(Color.rgb(145, 160, 181))
             })
         }
         widgetStatusView = label("Loading widgets…", 16f).apply {
             setTextColor(Color.WHITE)
         }
+        widgetStatusView.visibility = View.GONE
         widgetsCard.addView(widgetStatusView)
+        widgetsCard.addView(label("Para onde vamos?", 24f).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        routeStatusView = label("Nenhum destino selecionado", 15f).apply {
+            setTextColor(Color.rgb(170, 182, 199))
+        }
+        widgetsCard.addView(routeStatusView)
+        routeButton = Button(this).apply {
+            text = "Escolher destino"
+            stylePrimaryButton(this)
+            setOnClickListener { showDestinationDialog() }
+        }
+        widgetsCard.addView(routeButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        wazeButton = Button(this).apply {
+            text = "Iniciar no Waze"
+            stylePrimaryButton(this)
+            visibility = View.GONE
+            setOnClickListener { startWazeNavigation() }
+        }
+        widgetsCard.addView(wazeButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        streamWazeButton = Button(this).apply {
+            text = "Transmitir Waze para o Switch"
+            styleSecondaryButton(this)
+            visibility = View.GONE
+            setOnClickListener { toggleWazeScreenStream() }
+        }
+        widgetsCard.addView(streamWazeButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        clearRouteButton = Button(this).apply {
+            text = "Encerrar rota"
+            styleSecondaryButton(this)
+            setOnClickListener {
+                gpsWidget.clearDestination()
+                selectedNavigationDestination = null
+                refreshWidgetViews()
+            }
+        }
+        widgetsCard.addView(clearRouteButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
         gpsButton = Button(this).apply {
-            text = "ENABLE GPS"
+            text = "Ativar localização"
+            styleSecondaryButton(this)
             setOnClickListener {
                 if (::gpsWidget.isInitialized) gpsWidget.setEnabled(!gpsWidget.isEnabled())
             }
         }
         widgetsCard.addView(gpsButton, ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(widgetsCard)
+        mediaButton = Button(this).apply {
+            text = "Permitir controle de mídia"
+            styleSecondaryButton(this)
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
+        widgetsCard.addView(mediaButton, ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        homePage.addView(widgetsCard)
 
         val customizationCard = card(padding).apply {
             val params = LinearLayout.LayoutParams(
@@ -241,7 +392,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT)
             params.topMargin = gap
             layoutParams = params
-            addView(label("CUSTOMIZE", 13f).apply {
+            addView(label("PERSONALIZAR", 13f).apply {
                 setTextColor(Color.rgb(145, 160, 181))
             })
         }
@@ -265,22 +416,29 @@ class MainActivity : Activity() {
         customizationCard.addView(themeButton)
         customizationCard.addView(layoutButton)
         customizationCard.addView(applyCustomizationButton)
-        root.addView(customizationCard)
+        customizationPage.addView(customizationCard)
         refreshCustomizationViews()
 
         val diagnosticsButton = Button(this).apply {
-            text = "SHOW DIAGNOSTICS"
+            text = "Diagnósticos"
+            styleSecondaryButton(this)
             setOnClickListener {
                 val show = logView.visibility != View.VISIBLE
                 logView.visibility = if (show) View.VISIBLE else View.GONE
                 toggleButton.visibility = if (show) View.VISIBLE else View.GONE
-                text = if (show) "HIDE DIAGNOSTICS" else "SHOW DIAGNOSTICS"
+                text = if (show) "Ocultar diagnósticos" else "Diagnósticos"
             }
         }
-        root.addView(diagnosticsButton)
+        diagnosticsPage.addView(diagnosticsButton)
         toggleButton.visibility = View.GONE
-        root.addView(toggleButton)
-        root.addView(logView)
+        diagnosticsPage.addView(toggleButton)
+        diagnosticsPage.addView(logView)
+
+        root.addView(homePage)
+        root.addView(connectionPage)
+        root.addView(customizationPage)
+        root.addView(diagnosticsPage)
+        showPage(AppPage.HOME)
 
         return ScrollView(this).apply {
             setBackgroundColor(Color.rgb(9, 13, 20))
@@ -307,12 +465,60 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun stylePrimaryButton(button: Button) {
+        button.backgroundTintList = ColorStateList.valueOf(Color.rgb(240, 68, 85))
+        button.setTextColor(Color.WHITE)
+        button.setTypeface(button.typeface, Typeface.BOLD)
+        button.isAllCaps = false
+    }
+
+    private fun styleSecondaryButton(button: Button) {
+        button.backgroundTintList = ColorStateList.valueOf(Color.rgb(35, 47, 64))
+        button.setTextColor(Color.rgb(224, 230, 239))
+        button.isAllCaps = false
+    }
+
+    private fun connectionDot(connected: Boolean) = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(if (connected) Color.rgb(57, 211, 137) else Color.rgb(110, 124, 145))
+    }
+
+    private fun refreshHomeConnection() {
+        if (!::homeConnectionDot.isInitialized) return
+        val connected = activeClients.isNotEmpty()
+        homeConnectionDot.background = connectionDot(connected)
+        homeConnectionDot.contentDescription =
+            if (connected) "Switch conectado" else "Switch desconectado"
+    }
+
+    private fun showAppMenu() {
+        val labels = arrayOf("Início", "Conexão", "Personalizar", "Diagnósticos")
+        AlertDialog.Builder(this)
+            .setTitle("Switch Auto")
+            .setItems(labels) { _, index -> showPage(AppPage.entries[index]) }
+            .setNegativeButton("Fechar", null)
+            .show()
+    }
+
+    private fun showPage(page: AppPage) {
+        if (!::homePage.isInitialized) return
+        homePage.visibility = if (page == AppPage.HOME) View.VISIBLE else View.GONE
+        connectionPage.visibility =
+            if (page == AppPage.CONNECTION) View.VISIBLE else View.GONE
+        customizationPage.visibility =
+            if (page == AppPage.CUSTOMIZATION) View.VISIBLE else View.GONE
+        diagnosticsPage.visibility =
+            if (page == AppPage.DIAGNOSTICS) View.VISIBLE else View.GONE
+    }
+
     private fun startServer() {
         if (!running.compareAndSet(false, true)) return
         CompanionForegroundService.start(
             this, ::gpsWidget.isInitialized && gpsWidget.isEnabled())
+        foregroundLocationActive =
+            ::gpsWidget.isInitialized && gpsWidget.isEnabled()
         refreshConnectionDetails()
-        statusView.text = "Starting..."
+        statusView.text = "Iniciando..."
         toggleButton.text = "Stop server"
 
         executor.execute {
@@ -321,7 +527,7 @@ class MainActivity : Activity() {
                     server.soTimeout = ACCEPT_POLL_TIMEOUT_MS
                     serverSocket = server
                     runOnUiThread {
-                        statusView.text = "Listening on port $SERVER_PORT"
+                        statusView.text = "Pronto para conectar"
                         appendLog("Companion server ready")
                     }
                     while (running.get()) {
@@ -339,7 +545,7 @@ class MainActivity : Activity() {
                 running.set(false)
                 serverSocket = null
                 runOnUiThread {
-                    statusView.text = "Stopped"
+                    statusView.text = "Servidor pausado"
                     toggleButton.text = "Start server"
                 }
             }
@@ -350,14 +556,16 @@ class MainActivity : Activity() {
     private fun stopServer() {
         running.set(false)
         CompanionForegroundService.stop(this)
+        foregroundLocationActive = null
         serverSocket?.close()
         discoverySocket?.close()
         activeClients.forEach { client -> runCatching { client.close() } }
         activeClients.clear()
+        refreshHomeConnection()
         serverSocket = null
         discoverySocket = null
         if (::statusView.isInitialized) {
-            statusView.text = "Stopped"
+            statusView.text = "Servidor pausado"
             toggleButton.text = "Start server"
             appendLog("Server stopped.")
         }
@@ -368,6 +576,7 @@ class MainActivity : Activity() {
         sessionContext.set(sessionId)
         var outcome = "connection_closed"
         activeClients.add(socket)
+        runOnUiThread(::refreshHomeConnection)
         val remote = socket.inetAddress.hostAddress ?: "unknown"
         appendLog("[session=$sessionId] Client connected: $remote")
         try {
@@ -441,7 +650,7 @@ class MainActivity : Activity() {
                                 outcome = "online"
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
-                                runOnUiThread { statusView.text = "Switch paired: $remote" }
+                                runOnUiThread { statusView.text = "Switch pareado" }
                             } else {
                                 appendLog("Authentication rejected for deviceId=$deviceId: invalid proof")
                                 send(writer, message("pair.rejected").put("reason", "invalid_proof"))
@@ -465,7 +674,7 @@ class MainActivity : Activity() {
                                 widgetRegistry.contributeTelemetry(response)
                             customizationManager.contribute(response)
                             runOnUiThread {
-                                statusView.text = "Connected — ${batteryWidget.statusText()}"
+                                statusView.text = "Switch conectado"
                             }
                             send(writer, response, client.getOutputStream(), binaryPayload)
                         } else {
@@ -485,6 +694,7 @@ class MainActivity : Activity() {
             appendLog("[session=$sessionId] Client disconnected: $remote outcome=$outcome")
             writeDiagnosticReport(sessionId, remote, outcome)
             activeClients.remove(socket)
+            runOnUiThread(::refreshHomeConnection)
             sessionContext.remove()
         }
     }
@@ -648,7 +858,7 @@ class MainActivity : Activity() {
 
     private fun refreshConnectionDetails() {
         if (!::addressView.isInitialized) return
-        addressView.text = "IP: ${findIpv4Address() ?: "unavailable"}   Port: $SERVER_PORT"
+        addressView.text = "Companion ativo em segundo plano"
     }
 
     private fun hasStoredPairing(): Boolean = getPreferences(MODE_PRIVATE).all.keys
@@ -720,16 +930,22 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     refreshWidgetViews()
                     if (running.get()) {
-                        CompanionForegroundService.start(
-                            this, ::gpsWidget.isInitialized && gpsWidget.isEnabled())
+                        val locationActive =
+                            ::gpsWidget.isInitialized && gpsWidget.isEnabled()
+                        if (foregroundLocationActive != locationActive) {
+                            foregroundLocationActive = locationActive
+                            CompanionForegroundService.start(this, locationActive)
+                        }
                     }
                 }
             })
         widgetRegistry = CompanionWidgetRegistry(context)
         batteryWidget = BatteryWidget()
         gpsWidget = GpsWidget()
+        mediaWidget = MediaWidget()
         check(widgetRegistry.register(batteryWidget))
         check(widgetRegistry.register(gpsWidget))
+        check(widgetRegistry.register(mediaWidget))
         widgetRegistry.initializeAndActivate()
     }
 
@@ -738,7 +954,152 @@ class MainActivity : Activity() {
         widgetStatusView.text = widgetRegistry.all().joinToString("\n") {
             "${it.title}: ${it.statusText()}"
         }
-        gpsButton.text = if (gpsWidget.isEnabled()) "DISABLE GPS" else "ENABLE GPS"
+        gpsButton.text =
+            if (gpsWidget.isEnabled()) "Localização ativa" else "Ativar localização"
+        mediaButton.text =
+            if (permissionManager.state(AppCapability.MEDIA_CONTROL) ==
+                AppPermissionState.GRANTED) {
+                "Controle de mídia ativo"
+            } else {
+                "Permitir controle de mídia"
+            }
+        if (::routeStatusView.isInitialized) {
+            routeStatusView.text = gpsWidget.navigationStatus()
+            clearRouteButton.visibility =
+                if (gpsWidget.navigationStatus() != "No destination") View.VISIBLE else View.GONE
+            wazeButton.visibility =
+                if (selectedNavigationDestination != null) View.VISIBLE else View.GONE
+            wazeButton.text =
+                if (wazeNavigationProvider.isAvailable(this)) {
+                    "Iniciar no Waze"
+                } else {
+                    "Abrir rota pelo Waze"
+                }
+            streamWazeButton.visibility =
+                if (selectedNavigationDestination != null) View.VISIBLE else View.GONE
+            streamWazeButton.text =
+                if (screenCaptureController?.isActive() == true) {
+                    "Parar transmissÃ£o do Waze"
+                } else {
+                    "Transmitir Waze para o Switch"
+                }
+        }
+    }
+
+    private fun toggleWazeScreenStream() {
+        screenCaptureController?.takeIf { it.isActive() }?.let {
+            it.stop()
+            return
+        }
+        val manager = getSystemService(MediaProjectionManager::class.java)
+        startActivityForResult(
+            manager.createScreenCaptureIntent(),
+            SCREEN_CAPTURE_REQUEST_CODE
+        )
+    }
+
+    private fun startWazeNavigation() {
+        val destination = selectedNavigationDestination ?: return
+        wazeNavigationProvider.startNavigation(this, destination)
+            .onSuccess {
+                appendLog("Navigation handed off to Waze: ${destination.label}")
+            }
+            .onFailure { error ->
+                appendLog("Waze handoff failed: ${error.message}")
+                AlertDialog.Builder(this)
+                    .setTitle("NÃ£o foi possÃ­vel abrir o Waze")
+                    .setMessage(
+                        "A rota interna continuarÃ¡ ativa no Switch.\n\n" +
+                            (error.message ?: "Nenhum aplicativo compatÃ­vel foi encontrado.")
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+    }
+
+    private fun showDestinationDialog() {
+        val input = EditText(this).apply {
+            hint = "Rua, número, cidade"
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.rgb(145, 160, 181))
+        }
+        val container = LinearLayout(this).apply {
+            setPadding(48, 8, 48, 0)
+            addView(input, ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Escolher destino")
+            .setMessage("Digite o endereço completo, incluindo número e cidade.")
+            .setView(container)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Buscar", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val query = input.text.toString().trim()
+                if (query.length < 3) {
+                    input.error = "Enter at least 3 characters"
+                    return@setOnClickListener
+                }
+                val searchButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                searchButton.isEnabled = false
+                searchButton.text = "Buscando..."
+                executor.execute {
+                    runCatching { AddressSearch.search(this, query) }
+                        .onSuccess { results ->
+                            runOnUiThread {
+                                searchButton.isEnabled = true
+                                searchButton.text = "Buscar"
+                                if (results.isEmpty()) {
+                                    input.error = "No address found"
+                                    return@runOnUiThread
+                                }
+                                AlertDialog.Builder(this)
+                                    .setTitle("Confirme o destino")
+                                    .setItems(results.map { it.label }.toTypedArray()) {
+                                            _, selected ->
+                                        val result = results[selected]
+                                        gpsWidget.setDestination(
+                                            result.latitude, result.longitude)
+                                        selectedNavigationDestination =
+                                            NavigationDestination(
+                                                result.latitude,
+                                                result.longitude,
+                                                result.label
+                                            )
+                                        appendLog(
+                                            "Route destination selected: ${result.label}")
+                                        dialog.dismiss()
+                                        refreshWidgetViews()
+                                        AlertDialog.Builder(this)
+                                            .setTitle("Destino pronto")
+                                            .setMessage(
+                                                "A rota interna foi enviada ao Switch. " +
+                                                    "Deseja iniciar a navegaÃ§Ã£o no Waze?"
+                                            )
+                                            .setNegativeButton("Agora nÃ£o", null)
+                                            .setPositiveButton("Abrir Waze") { _, _ ->
+                                                startWazeNavigation()
+                                            }
+                                            .show()
+                                    }
+                                    .setNegativeButton("Voltar", null)
+                                    .show()
+                            }
+                        }
+                        .onFailure { error ->
+                            runOnUiThread {
+                                searchButton.isEnabled = true
+                                searchButton.text = "Buscar"
+                                input.error = "Search failed: ${error.message}"
+                            }
+                        }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun refreshCustomizationViews() {
@@ -757,6 +1118,10 @@ class MainActivity : Activity() {
         val bytes = ByteArray(16)
         SecureRandom().nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private companion object {
+        const val SCREEN_CAPTURE_REQUEST_CODE = 4201
     }
 
     private fun hmacSha256(hexKey: String, message: String): String {

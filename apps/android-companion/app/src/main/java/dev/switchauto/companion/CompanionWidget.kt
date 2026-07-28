@@ -57,11 +57,18 @@ class CompanionWidgetRegistry(private val context: CompanionWidgetContext) {
         widgets.forEach { widget ->
             runCatching {
                 widget.initialize(context)
+            }.onFailure { error ->
+                widget.state = CompanionWidgetState.ERROR
+                context.log("Widget ${widget.id} initialization failed: ${error.message}")
+            }
+        }
+        widgets.filter { it.state == CompanionWidgetState.INITIALIZED }.forEach { widget ->
+            runCatching {
                 widget.activate()
                 context.log("Widget ${widget.id} active")
             }.onFailure { error ->
                 widget.state = CompanionWidgetState.ERROR
-                context.log("Widget ${widget.id} failed: ${error.message}")
+                context.log("Widget ${widget.id} activation failed: ${error.message}")
             }
         }
         context.stateChanged()

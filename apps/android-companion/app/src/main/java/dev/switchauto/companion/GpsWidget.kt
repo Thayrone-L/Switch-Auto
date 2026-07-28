@@ -14,9 +14,12 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
 import org.maplibre.android.snapshotter.MapSnapshotter
+import org.maplibre.android.snapshotter.MapSnapshot
 import java.io.ByteArrayOutputStream
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.sin
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -29,21 +32,33 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     private var enabled = false
     @Volatile private var lastLocation: Location? = null
     @Volatile private var latestMapFrame: ByteArray? = null
+    @Volatile private var externalMapStreamActive = false
     private val mapFrameId = AtomicInteger(0)
     private var lastSentMapFrameId = 0
     private val snapshotInProgress = AtomicBoolean(false)
     private val rerenderRequested = AtomicBoolean(false)
+    private val routeInProgress = AtomicBoolean(false)
     private var lastSnapshotTime = 0L
     private var snapshotter: MapSnapshotter? = null
     @Volatile private var cameraOffsetLatitude = 0.0
     @Volatile private var cameraOffsetLongitude = 0.0
     @Volatile private var explorationExpiresAt = 0L
+    @Volatile private var destination: LatLng? = null
+    @Volatile private var activeRoute: NavigationRoute? = null
+    @Volatile private var routeStatus = "No destination"
+    private val routeExecutor = Executors.newSingleThreadExecutor()
 
     override fun initialize(context: CompanionWidgetContext) {
         super.initialize(context)
         locationManager = context.activity.getSystemService(
             Context.LOCATION_SERVICE) as LocationManager
         enabled = preferences().getBoolean("enabled", false)
+        val savedLatitude = preferences().getString("destinationLatitude", null)?.toDoubleOrNull()
+        val savedLongitude = preferences().getString("destinationLongitude", null)?.toDoubleOrNull()
+        if (savedLatitude != null && savedLongitude != null) {
+            destination = LatLng(savedLatitude, savedLongitude)
+            routeStatus = "Waiting for location to calculate route"
+        }
     }
 
     override fun activate() {
@@ -53,6 +68,45 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     }
 
     fun isEnabled() = enabled
+
+    fun navigationStatus() = routeStatus
+
+    fun submitExternalMapFrame(frame: ByteArray) {
+        externalMapStreamActive = true
+        synchronized(this) {
+            latestMapFrame = frame
+            mapFrameId.incrementAndGet()
+        }
+        context.stateChanged()
+    }
+
+    fun stopExternalMapStream() {
+        externalMapStreamActive = false
+        lastLocation?.let { renderMap(it, force = true) }
+        context.stateChanged()
+    }
+
+    fun setDestination(latitude: Double, longitude: Double) {
+        require(latitude in -85.0..85.0 && longitude in -180.0..180.0)
+        destination = LatLng(latitude, longitude)
+        preferences().edit()
+            .putString("destinationLatitude", latitude.toString())
+            .putString("destinationLongitude", longitude.toString())
+            .apply()
+        calculateRoute()
+    }
+
+    fun clearDestination() {
+        destination = null
+        activeRoute = null
+        routeStatus = "No destination"
+        preferences().edit()
+            .remove("destinationLatitude")
+            .remove("destinationLongitude")
+            .apply()
+        lastLocation?.let { renderMap(it, force = true) }
+        context.stateChanged()
+    }
 
     fun setEnabled(value: Boolean) {
         if (!value) {
@@ -103,10 +157,16 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
         val metersPerPixel = 156543.03392 *
             cos(Math.toRadians(location.latitude)) / 2.0.pow(MAP_ZOOM)
-        cameraOffsetLatitude += deltaY * metersPerPixel / 111320.0
+        val bearingRadians = Math.toRadians(
+            if (location.hasBearing()) location.bearing.toDouble() else 0.0)
+        val eastPixels =
+            -deltaX * cos(bearingRadians) + deltaY * sin(bearingRadians)
+        val northPixels =
+            deltaX * sin(bearingRadians) + deltaY * cos(bearingRadians)
+        cameraOffsetLatitude += northPixels * metersPerPixel / 111320.0
         val longitudeScale =
             (111320.0 * cos(Math.toRadians(location.latitude))).coerceAtLeast(1.0)
-        cameraOffsetLongitude -= deltaX * metersPerPixel / longitudeScale
+        cameraOffsetLongitude += eastPixels * metersPerPixel / longitudeScale
         explorationExpiresAt = System.currentTimeMillis() + EXPLORATION_TIMEOUT_MS
         context.log(
             "Widget $id viewport pan: dx=${deltaX.toInt()} dy=${deltaY.toInt()}")
@@ -117,6 +177,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         val current = lastLocation
         if (current == null || location.time >= current.time || location.accuracy < current.accuracy) {
             lastLocation = location
+            if (destination != null && activeRoute == null) calculateRoute()
             renderMap(location)
             context.stateChanged()
         }
@@ -135,6 +196,14 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                 .put("bearingDegrees",
                     if (location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
                 .put("timestamp", location.time))
+        }
+        activeRoute?.let { route ->
+            target.put("navigation", JSONObject()
+                .put("active", true)
+                .put("distanceMeters", route.distanceMeters)
+                .put("durationSeconds", route.durationSeconds)
+                .put("destinationLatitude", destination?.latitude)
+                .put("destinationLongitude", destination?.longitude))
         }
         val frameId = mapFrameId.get()
         latestMapFrame?.takeIf { frameId != lastSentMapFrameId }?.let { frame ->
@@ -165,6 +234,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         stopUpdates()
         snapshotter?.cancel()
         snapshotter = null
+        routeExecutor.shutdownNow()
         super.dispose()
     }
     override fun onProviderEnabled(provider: String) = startUpdates()
@@ -174,6 +244,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         "switch_auto_widget_gps", Context.MODE_PRIVATE)
 
     private fun renderMap(location: Location, force: Boolean = false) {
+        if (externalMapStreamActive) return
         val now = System.currentTimeMillis()
         if (!force && now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS) return
         if (!snapshotInProgress.compareAndSet(false, true)) {
@@ -204,7 +275,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                 }
             activeSnapshotter.setCameraPosition(camera)
             activeSnapshotter.start({ snapshot ->
-                val encoded = encodeSnapshot(snapshot.bitmap)
+                val encoded = encodeSnapshot(snapshot)
                 if (encoded != null) {
                     val frameId = synchronized(this@GpsWidget) {
                         latestMapFrame = encoded
@@ -218,14 +289,21 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                     context.log(
                         "Widget $id map frame discarded: could not fit protocol limit")
                 }
-                snapshotInProgress.set(false)
-                renderPendingFrame()
+                finishSnapshot()
                 context.stateChanged()
             }, { error ->
-                snapshotInProgress.set(false)
-                renderPendingFrame()
+                finishSnapshot()
                 context.log("Widget $id map snapshot failed: $error")
             })
+        }
+    }
+
+    private fun finishSnapshot() {
+        // MapLibre only clears its internal "started" flag after the callback
+        // returns. Keep our guard active until the next UI loop iteration.
+        context.activity.window.decorView.post {
+            snapshotInProgress.set(false)
+            renderPendingFrame()
         }
     }
 
@@ -235,7 +313,45 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         }
     }
 
-    private fun encodeSnapshot(source: Bitmap): ByteArray? {
+    private fun calculateRoute() {
+        if (!routeInProgress.compareAndSet(false, true)) return
+        val origin = lastLocation ?: run {
+            routeInProgress.set(false)
+            routeStatus = "Waiting for location to calculate route"
+            context.stateChanged()
+            return
+        }
+        val target = destination ?: run {
+            routeInProgress.set(false)
+            return
+        }
+        routeStatus = "Calculating route..."
+        context.stateChanged()
+        routeExecutor.execute {
+            runCatching {
+                RoutePlanner.calculate(
+                    LatLng(origin.latitude, origin.longitude), target)
+            }.onSuccess { route ->
+                routeInProgress.set(false)
+                activeRoute = route
+                routeStatus = "%.1f km · %.0f min".format(
+                    route.distanceMeters / 1000.0, route.durationSeconds / 60.0)
+                context.log(
+                    "Widget $id route ready: ${route.points.size} points, $routeStatus")
+                lastLocation?.let { renderMap(it, force = true) }
+                context.stateChanged()
+            }.onFailure { error ->
+                routeInProgress.set(false)
+                activeRoute = null
+                routeStatus = "Route failed: ${error.message}"
+                context.log("Widget $id route calculation failed: ${error.message}")
+                context.stateChanged()
+            }
+        }
+    }
+
+    private fun encodeSnapshot(snapshot: MapSnapshot): ByteArray? {
+        val source = snapshot.bitmap
         val scaled = if (source.width == MAP_WIDTH && source.height == MAP_HEIGHT) {
             source
         } else {
@@ -246,11 +362,33 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(240, 68, 85)
         }
-        canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
+        activeRoute?.points?.let { points ->
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 8f
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.strokeJoin = Paint.Join.ROUND
+            paint.color = Color.rgb(33, 150, 243)
+            val path = android.graphics.Path()
+            points.forEachIndexed { index, point ->
+                val pixel = snapshot.pixelForLatLng(point)
+                if (index == 0) path.moveTo(pixel.x, pixel.y)
+                else path.lineTo(pixel.x, pixel.y)
+            }
+            canvas.drawPath(path, paint)
+        }
+        val location = lastLocation
+        val locationPixel = if (location != null) {
+            snapshot.pixelForLatLng(LatLng(location.latitude, location.longitude))
+        } else {
+            android.graphics.PointF(mutable.width / 2f, mutable.height / 2f)
+        }
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(240, 68, 85)
+        canvas.drawCircle(locationPixel.x, locationPixel.y, 13f, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 5f
         paint.color = Color.WHITE
-        canvas.drawCircle(mutable.width / 2f, mutable.height / 2f, 13f, paint)
+        canvas.drawCircle(locationPixel.x, locationPixel.y, 13f, paint)
         paint.style = Paint.Style.FILL
         paint.textSize = 11f
         paint.color = Color.argb(190, 0, 0, 0)

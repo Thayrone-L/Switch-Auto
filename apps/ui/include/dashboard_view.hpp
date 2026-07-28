@@ -44,6 +44,9 @@ private:
     BRLS_BIND(brls::Button, connectionButton_, "connection-button");
     BRLS_BIND(brls::Label, trackLabel_, "track");
     BRLS_BIND(brls::Label, artistLabel_, "artist");
+    BRLS_BIND(brls::Button, mediaPreviousButton_, "media-previous");
+    BRLS_BIND(brls::Button, mediaPlayPauseButton_, "media-play-pause");
+    BRLS_BIND(brls::Button, mediaNextButton_, "media-next");
 };
 
 }  // namespace switch_auto::ui

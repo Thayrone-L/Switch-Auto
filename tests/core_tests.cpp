@@ -127,16 +127,22 @@ int main() {
     assert(customizationPing.value().find("\"customizationRevision\":6") !=
         std::string::npos);
     const auto customizationPong = session.receive(
-        R"({"version":3,"type":"pong","sequence":5,"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
+        R"({"version":3,"type":"pong","sequence":5,"media":{"title":"Drive","artist":"Switch Auto","playing":true},"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
     assert(customizationPong);
     assert(session.status().remoteCustomization.has_value());
     assert(session.status().remoteCustomization->revision == 7);
     assert(session.status().remoteCustomization->themeId == "default-dark");
+    assert(session.status().remoteMedia.has_value());
+    assert(session.status().remoteMedia->title == "Drive");
+    assert(session.status().remoteMedia->playing);
     assert(WidgetLayout::deserialize(
         session.status().remoteCustomization->layoutJson).has_value());
 
-    const auto secondPing = session.heartbeat();
+    const auto secondPing = session.heartbeat(
+        std::nullopt, std::nullopt, std::nullopt, std::nullopt, "next");
     assert(secondPing);
+    assert(secondPing.value().find("\"mediaControl\":{\"action\":\"next\"}") !=
+        std::string::npos);
     const auto mismatchedPong = session.receive(
         R"({"version":3,"type":"pong","sequence":99})");
     assert(!mismatchedPong);

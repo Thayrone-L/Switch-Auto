@@ -64,6 +64,12 @@ struct RemoteMapFrame {
     std::vector<std::uint8_t> data;
 };
 
+struct RemoteMedia {
+    std::string title;
+    std::string artist;
+    bool playing = false;
+};
+
 struct RemoteCustomization {
     std::uint32_t revision = 0;
     std::string themeId;
@@ -79,6 +85,7 @@ struct CompanionStatus {
     std::optional<int> remoteBatteryPercent;
     std::optional<RemoteLocation> remoteLocation;
     std::optional<RemoteMapFrame> remoteMapFrame;
+    std::optional<RemoteMedia> remoteMedia;
     std::optional<RemoteCustomization> remoteCustomization;
     std::string sessionId;
     std::string endpointAddress;
@@ -111,6 +118,7 @@ public:
         (void)deltaXPixels;
         (void)deltaYPixels;
     }
+    virtual void controlMedia(std::string_view action) { (void)action; }
 };
 
 // Transport-independent protocol state machine. Platform services own sockets,
@@ -127,7 +135,8 @@ public:
         std::optional<int> localBatteryPercent = std::nullopt,
         std::optional<std::uint32_t> customizationRevision = std::nullopt,
         std::optional<float> mapPanXPixels = std::nullopt,
-        std::optional<float> mapPanYPixels = std::nullopt);
+        std::optional<float> mapPanYPixels = std::nullopt,
+        std::optional<std::string_view> mediaAction = std::nullopt);
     void transportConnected();
     void transportDisconnected(CompanionError reason);
     void reset();

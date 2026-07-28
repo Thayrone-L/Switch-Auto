@@ -59,12 +59,29 @@
 - implementar catálogo de favoritos e transferência de assets de temas;
 - [x] framing binário para snapshots de mapa sem Base64;
 - separar canais de controle, mapas e áudio para streaming contínuo;
-- foreground service para manter transporte e GPS com a tela bloqueada;
-- metadados da sessão de mídia;
-- play, pause, faixa anterior e próxima;
+- [x] foreground service para manter transporte e GPS com a tela bloqueada;
+- [x] metadados da sessão de mídia;
+- [x] play, pause, faixa anterior e próxima;
 - permissões e serviço em primeiro plano no Android.
+- [x] busca de destino por endereço e cálculo de rota;
+- [x] mapa MapLibre transmitido para o Switch com pan por toque;
+- [x] abertura de destino no Waze por deep link;
+- [x] prova de conceito de espelhamento com `MediaProjection`;
 
-## Marco 3 — Experiência automotiva
+## Marco 3 — Host Android Auto experimental
+
+- [x] registrar a decisão arquitetural e preservar o MapLibre como fallback;
+- avaliar AASDK, Headunit Revived e OpenAutoLink, incluindo licenças;
+- definir os canais internos de projeção, áudio e input;
+- anunciar ou disponibilizar o Switch como head unit;
+- concluir handshake e sessão com o Android Auto;
+- receber e decodificar o primeiro quadro de vídeo;
+- enviar o primeiro toque do Switch para o Android Auto;
+- implementar reconexão e fallback automáticos;
+- integrar áudio de mídia, sistema e navegação;
+- integrar microfone, chamadas e comandos de voz.
+
+## Marco 4 — Experiência automotiva
 
 - endurecer o pareamento com desafio criptográfico e transporte autenticado;
 - temas claro e escuro;

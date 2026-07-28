@@ -29,6 +29,7 @@ public:
     bool hasTrustedCompanion() const override { return hasTrustedCompanion_; }
     void setStatusHandler(StatusHandler handler) override;
     void panMap(float deltaXPixels, float deltaYPixels) override;
+    void controlMedia(std::string_view action) override;
 
 private:
     void runAutomatic();
@@ -36,10 +37,13 @@ private:
     CompanionError runSession(const CompanionEndpoint& endpoint,
         const std::string& pairingToken);
     void publish(const CompanionStatus& status);
+    void dispatchLatestStatus();
     bool waitForRetry(std::chrono::milliseconds delay);
 
     mutable std::mutex statusMutex_;
     CompanionStatus status_;
+    std::uint64_t statusGeneration_ = 0;
+    bool statusEventScheduled_ = false;
     std::thread worker_;
     std::atomic<bool> stopRequested_{false};
     std::atomic<int> activeSocket_{-1};
@@ -54,6 +58,7 @@ private:
     std::mutex mapCommandMutex_;
     float pendingMapPanX_ = 0.0f;
     float pendingMapPanY_ = 0.0f;
+    std::string pendingMediaAction_;
 };
 
 }  // namespace switch_auto::platform::switch_platform

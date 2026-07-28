@@ -3,7 +3,9 @@ package dev.switchauto.companion
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.content.ComponentName
 import android.os.Build
+import android.provider.Settings
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -39,7 +41,14 @@ class AndroidPermissionManager(private val activity: Activity) {
 
     fun state(capability: AppCapability): AppPermissionState {
         if (capability == AppCapability.MEDIA_CONTROL) {
-            return AppPermissionState.REQUIRES_SETTINGS
+            val enabled = Settings.Secure.getString(
+                activity.contentResolver, "enabled_notification_listeners")
+                .orEmpty().split(':').any {
+                    ComponentName.unflattenFromString(it)?.packageName ==
+                        activity.packageName
+                }
+            return if (enabled) AppPermissionState.GRANTED
+            else AppPermissionState.REQUIRES_SETTINGS
         }
         val permissions = runtimePermissions(capability)
             ?: return AppPermissionState.UNAVAILABLE

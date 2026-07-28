@@ -614,12 +614,15 @@ CompanionError SwitchTcpCompanionService::runSession(
                 appliedCustomizationRevision_.load();
             float mapPanX = 0.0f;
             float mapPanY = 0.0f;
+            std::string mediaAction;
             {
                 std::lock_guard<std::mutex> lock(mapCommandMutex_);
                 mapPanX = pendingMapPanX_;
                 mapPanY = pendingMapPanY_;
                 pendingMapPanX_ = 0.0f;
                 pendingMapPanY_ = 0.0f;
+                mediaAction = std::move(pendingMediaAction_);
+                pendingMediaAction_.clear();
             }
             const auto ping = session.heartbeat(localBattery,
                 customizationRevision > 0
@@ -628,7 +631,10 @@ CompanionError SwitchTcpCompanionService::runSession(
                 mapPanX != 0.0f || mapPanY != 0.0f
                     ? std::optional<float>(mapPanX) : std::nullopt,
                 mapPanX != 0.0f || mapPanY != 0.0f
-                    ? std::optional<float>(mapPanY) : std::nullopt);
+                    ? std::optional<float>(mapPanY) : std::nullopt,
+                !mediaAction.empty()
+                    ? std::optional<std::string_view>(mediaAction)
+                    : std::nullopt);
             if (!ping || !sendAll(socketFd, ping.value()) ||
                 !receiveLine(socketFd, response)) {
                 failure = ping ? socketFailure() : ping.error();
@@ -686,18 +692,49 @@ CompanionError SwitchTcpCompanionService::runSession(
 }
 
 void SwitchTcpCompanionService::publish(const CompanionStatus& status) {
+    bool scheduleEvent = false;
     {
         std::lock_guard<std::mutex> lock(statusMutex_);
         status_ = status;
-    }
-    events_.post([this, status]() {
-        StatusHandler handler;
-        {
-            std::lock_guard<std::mutex> lock(handlerMutex_);
-            handler = statusHandler_;
+        ++statusGeneration_;
+        if (!statusEventScheduled_) {
+            statusEventScheduled_ = true;
+            scheduleEvent = true;
         }
-        if (handler) handler(status);
-    });
+    }
+    if (scheduleEvent) {
+        events_.post([this]() { dispatchLatestStatus(); });
+    }
+}
+
+void SwitchTcpCompanionService::dispatchLatestStatus() {
+    CompanionStatus latest;
+    std::uint64_t dispatchedGeneration = 0;
+    {
+        std::lock_guard<std::mutex> lock(statusMutex_);
+        latest = status_;
+        dispatchedGeneration = statusGeneration_;
+    }
+
+    StatusHandler handler;
+    {
+        std::lock_guard<std::mutex> lock(handlerMutex_);
+        handler = statusHandler_;
+    }
+    if (handler) handler(latest);
+
+    bool scheduleNext = false;
+    {
+        std::lock_guard<std::mutex> lock(statusMutex_);
+        if (statusGeneration_ == dispatchedGeneration) {
+            statusEventScheduled_ = false;
+        } else {
+            scheduleNext = true;
+        }
+    }
+    if (scheduleNext) {
+        events_.post([this]() { dispatchLatestStatus(); });
+    }
 }
 
 void SwitchTcpCompanionService::setStatusHandler(StatusHandler handler) {
@@ -710,6 +747,12 @@ void SwitchTcpCompanionService::panMap(
     std::lock_guard<std::mutex> lock(mapCommandMutex_);
     pendingMapPanX_ += deltaXPixels;
     pendingMapPanY_ += deltaYPixels;
+}
+
+void SwitchTcpCompanionService::controlMedia(std::string_view action) {
+    if (action != "play_pause" && action != "previous" && action != "next") return;
+    std::lock_guard<std::mutex> lock(mapCommandMutex_);
+    pendingMediaAction_ = action;
 }
 
 bool SwitchTcpCompanionService::waitForRetry(std::chrono::milliseconds delay) {
