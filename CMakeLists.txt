@@ -24,6 +24,8 @@ set(SWITCH_AUTO_SOURCES
     apps/ui/source/localization_adapter.cpp
     apps/ui/source/main.cpp
     apps/ui/source/qr_code_view.cpp
+    core/source/android_auto.cpp
+    core/source/android_auto_protocol.cpp
     core/source/companion.cpp
     core/source/crypto.cpp
     core/source/localization.cpp
@@ -34,6 +36,7 @@ set(SWITCH_AUTO_SOURCES
 
 if(PLATFORM_SWITCH)
     list(APPEND SWITCH_AUTO_SOURCES
+        apps/platform/switch/switch_android_auto_host.cpp
         apps/platform/switch/switch_tcp_companion_service.cpp
         apps/platform/switch/switch_device_identity.cpp
         extern/borealis/library/lib/platforms/switch/switch_wrapper.c

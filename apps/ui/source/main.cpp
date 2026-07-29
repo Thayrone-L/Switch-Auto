@@ -17,6 +17,7 @@
 #include <switch.h>
 
 #include "switch_tcp_companion_service.hpp"
+#include "switch_android_auto_host.hpp"
 #endif
 
 namespace {
@@ -129,18 +130,60 @@ int main(int argc, char** argv) {
     switch_auto::ui::setLocalizationService(&localization);
     std::unique_ptr<switch_auto::CompanionService> companion;
 #ifdef __SWITCH__
+    std::unique_ptr<switch_auto::AndroidAutoHostService> androidAutoHost;
+#endif
+#ifdef __SWITCH__
     // Borealis' switch_wrapper owns socket/PSM initialization and shutdown.
     companion = std::make_unique<
         switch_auto::platform::switch_platform::SwitchTcpCompanionService>(events);
+    androidAutoHost = std::make_unique<
+        switch_auto::platform::switch_platform::SwitchAndroidAutoHost>(
+            events, [&companion]() {
+                using Host = switch_auto::platform::switch_platform::
+                    SwitchAndroidAutoHost;
+                if (!companion) return Host::Endpoint{};
+                const auto status = companion->status();
+                if (!status.remoteAndroidAutoBootstrap ||
+                    !status.remoteAndroidAutoBootstrap->ready) {
+                    return Host::Endpoint{};
+                }
+                return Host::Endpoint{
+                    status.endpointAddress,
+                    status.remoteAndroidAutoBootstrap->port};
+            });
 #else
     companion = std::make_unique<SimulatorCompanionService>(events);
 #endif
     switch_auto::ui::DashboardView::setRuntimeService(&runtime);
     switch_auto::ui::DashboardView::setCompanionService(companion.get());
-    companion->setStatusHandler([](const switch_auto::CompanionStatus& status) {
+    companion->setStatusHandler([
+#ifdef __SWITCH__
+        androidAutoHostPtr = androidAutoHost.get()
+#endif
+    ](const switch_auto::CompanionStatus& status) {
         switch_auto::ui::DashboardView::onCompanionStatus(status);
         switch_auto::ui::ConnectionView::onCompanionStatus(status);
+#ifdef __SWITCH__
+        if (androidAutoHostPtr &&
+            status.state == switch_auto::CompanionConnectionState::Online &&
+            status.remoteAndroidAutoBootstrap &&
+            status.remoteAndroidAutoBootstrap->ready &&
+            androidAutoHostPtr->status().state ==
+                switch_auto::AndroidAutoHostState::Stopped) {
+            brls::Logger::info(
+                "Android Auto host: Companion bootstrap ready, starting TCP discovery");
+            androidAutoHostPtr->start();
+        }
+#endif
     });
+#ifdef __SWITCH__
+    androidAutoHost->setStatusHandler([](
+        const switch_auto::AndroidAutoHostStatus& status) {
+        brls::Logger::info("Android Auto host state={} error={} endpoint={}",
+            static_cast<int>(status.state), static_cast<int>(status.lastError),
+            status.endpointAddress);
+    });
+#endif
 
     brls::Application::createWindow("Switch Auto");
     brls::Logger::info("Switch Auto stage: window-created");
@@ -170,6 +213,9 @@ int main(int argc, char** argv) {
         events.drain();
     }
 #ifdef __SWITCH__
+    androidAutoHost->setStatusHandler({});
+    androidAutoHost->stop();
+    androidAutoHost.reset();
     switch_auto::ui::DashboardView::setCompanionService(nullptr);
     companion->setStatusHandler({});
     companion.reset();

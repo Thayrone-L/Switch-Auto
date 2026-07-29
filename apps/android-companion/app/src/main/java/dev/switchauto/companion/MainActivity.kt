@@ -56,6 +56,7 @@ private const val SETTINGS_SCHEMA_VERSION = 1
 private const val ACCEPT_POLL_TIMEOUT_MS = 1_000
 private const val SESSION_IO_TIMEOUT_MS = 8_000
 private const val DISCOVERY_POLL_TIMEOUT_MS = 1_000
+private const val BOOTSTRAP_PROBE_INTERVAL_MS = 2_000L
 
 class MainActivity : Activity() {
     private enum class AppPage { HOME, CONNECTION, CUSTOMIZATION, DIAGNOSTICS }
@@ -68,6 +69,7 @@ class MainActivity : Activity() {
     private lateinit var gpsWidget: GpsWidget
     private lateinit var mediaWidget: MediaWidget
     private lateinit var customizationManager: CustomizationManager
+    private lateinit var androidAutoBootstrap: AndroidAutoBootstrapManager
 
     private lateinit var statusView: TextView
     private lateinit var addressView: TextView
@@ -93,6 +95,8 @@ class MainActivity : Activity() {
     private lateinit var customizationPage: LinearLayout
     private lateinit var diagnosticsPage: LinearLayout
     private lateinit var homeConnectionDot: View
+    private lateinit var androidAutoStatusView: TextView
+    private lateinit var androidAutoButton: Button
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var discoverySocket: DatagramSocket? = null
@@ -108,6 +112,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         customizationManager = CustomizationManager(this)
+        androidAutoBootstrap = AndroidAutoBootstrapManager(this)
         setContentView(buildUi())
         customizationManager.onStateChanged = {
             runOnUiThread(::refreshCustomizationViews)
@@ -141,6 +146,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         screenCaptureController?.stop()
+        if (::androidAutoBootstrap.isInitialized) androidAutoBootstrap.stop()
         if (::widgetRegistry.isInitialized) widgetRegistry.dispose()
         stopServer()
         executor.shutdownNow()
@@ -386,6 +392,36 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.WRAP_CONTENT)
         homePage.addView(widgetsCard)
 
+        val androidAutoCard = card(padding).apply {
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.topMargin = gap
+            layoutParams = params
+            addView(label("ANDROID AUTO", 13f).apply {
+                setTextColor(Color.rgb(145, 160, 181))
+            })
+            addView(label("Projeção experimental", 24f).apply {
+                setTypeface(typeface, Typeface.BOLD)
+            })
+        }
+        androidAutoStatusView = label("Verificando servidor…", 15f).apply {
+            setTextColor(Color.rgb(170, 182, 199))
+        }
+        androidAutoCard.addView(androidAutoStatusView)
+        androidAutoButton = Button(this).apply {
+            text = "Abrir Android Auto"
+            styleSecondaryButton(this)
+            setOnClickListener {
+                androidAutoBootstrap.openAndroidAuto()
+                appendLog("Android Auto opened; start the head unit server in developer settings")
+            }
+        }
+        androidAutoCard.addView(androidAutoButton,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        homePage.addView(androidAutoCard)
+
         val customizationCard = card(padding).apply {
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -551,6 +587,7 @@ class MainActivity : Activity() {
             }
         }
         executor.execute { runDiscoveryResponder() }
+        executor.execute { runAndroidAutoBootstrapMonitor() }
     }
 
     private fun stopServer() {
@@ -648,6 +685,7 @@ class MainActivity : Activity() {
                             if (expected.isNotEmpty() && secureEquals(expected, suppliedProof)) {
                                 paired = true
                                 outcome = "online"
+                                androidAutoBootstrap.setTrustedAddress(remote)
                                 send(writer, message("pair.accepted")
                                     .put("sessionToken", UUID.randomUUID().toString()))
                                 runOnUiThread { statusView.text = "Switch pareado" }
@@ -673,6 +711,7 @@ class MainActivity : Activity() {
                             val binaryPayload =
                                 widgetRegistry.contributeTelemetry(response)
                             customizationManager.contribute(response)
+                            androidAutoBootstrap.contribute(response)
                             runOnUiThread {
                                 statusView.text = "Switch conectado"
                             }
@@ -719,6 +758,45 @@ class MainActivity : Activity() {
             output.flush()
         }
         logProtocol("TX", payload, "Switch")
+    }
+
+    private fun runAndroidAutoBootstrapMonitor() {
+        var previous: AndroidAutoBootstrapManager.State? = null
+        while (running.get()) {
+            val current = androidAutoBootstrap.probe()
+            if (current == AndroidAutoBootstrapManager.State.READY) {
+                androidAutoBootstrap.startRelay()
+            }
+            if (current != previous) {
+                previous = current
+                appendLog("Android Auto bootstrap: ${current.wireValue}")
+                runOnUiThread { refreshAndroidAutoBootstrap() }
+            }
+            try {
+                Thread.sleep(BOOTSTRAP_PROBE_INTERVAL_MS)
+            } catch (_: InterruptedException) {
+                return
+            }
+        }
+    }
+
+    private fun refreshAndroidAutoBootstrap() {
+        if (!::androidAutoStatusView.isInitialized) return
+        val ready =
+            androidAutoBootstrap.state() == AndroidAutoBootstrapManager.State.READY
+        androidAutoStatusView.text = if (ready) {
+            "Servidor ativo. O Switch pode iniciar a projeção."
+        } else {
+            "Inicie “Servidor da unidade principal” nas opções de desenvolvedor."
+        }
+        androidAutoStatusView.setTextColor(if (ready) {
+            Color.rgb(69, 211, 140)
+        } else {
+            Color.rgb(255, 184, 92)
+        })
+        androidAutoButton.text =
+            if (ready) "Android Auto pronto" else "Abrir Android Auto"
+        androidAutoButton.isEnabled = !ready
     }
 
     private fun runDiscoveryResponder() {

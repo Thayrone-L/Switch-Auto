@@ -4,6 +4,8 @@
 #include <iostream>
 
 #include "switch_auto/application.hpp"
+#include "switch_auto/android_auto.hpp"
+#include "switch_auto/android_auto_protocol.hpp"
 #include "switch_auto/companion.hpp"
 #include "switch_auto/event_queue.hpp"
 #include "switch_auto/localization.hpp"
@@ -15,6 +17,99 @@
 
 int main() {
     using namespace switch_auto;
+
+    AndroidAutoSession androidAuto;
+    assert(androidAuto.startDiscovery());
+    assert(androidAuto.status().state == AndroidAutoHostState::Discovering);
+    assert(androidAuto.beginConnection("192.168.15.5:5277"));
+    assert(androidAuto.transportConnected());
+    assert(androidAuto.status().state == AndroidAutoHostState::Negotiating);
+    assert(androidAuto.versionNegotiated({1, 6, 0}));
+    assert(androidAuto.status().protocolVersion->major == 1);
+    assert(androidAuto.status().protocolVersion->minor == 6);
+
+    const auto versionRequest = makeAndroidAutoVersionRequest();
+    const std::vector<std::uint8_t> expectedVersionRequest{
+        0x00, 0x03, 0x00, 0x06, 0x00, 0x01, 0x00, 0x01, 0x00, 0x06};
+    assert(versionRequest == expectedVersionRequest);
+
+    AndroidAutoFrameCodec frameCodec;
+    const std::vector<std::uint8_t> versionResponse{
+        0x00, 0x03, 0x00, 0x08, 0x00, 0x02, 0x00, 0x01,
+        0x00, 0x06, 0x00, 0x00};
+    const auto partialFrames = frameCodec.feed(
+        versionResponse.data(), 3);
+    assert(partialFrames && partialFrames.value().empty());
+    const auto completeFrames = frameCodec.feed(
+        versionResponse.data() + 3, versionResponse.size() - 3);
+    assert(completeFrames && completeFrames.value().size() == 1);
+    const auto parsedVersion =
+        parseAndroidAutoVersionResponse(completeFrames.value().front());
+    assert(parsedVersion);
+    assert(parsedVersion.value().major == 1);
+    assert(parsedVersion.value().minor == 6);
+
+    std::vector<std::uint8_t> concatenated = versionResponse;
+    concatenated.insert(
+        concatenated.end(), versionResponse.begin(), versionResponse.end());
+    frameCodec.reset();
+    const auto twoFrames = frameCodec.feed(concatenated);
+    assert(twoFrames && twoFrames.value().size() == 2);
+
+    AndroidAutoFrame fragmented;
+    fragmented.channel = 3;
+    fragmented.type = AndroidAutoFrameType::First;
+    fragmented.totalSize = 70000;
+    fragmented.payload = {0x10, 0x20};
+    const auto encodedFragment = AndroidAutoFrameCodec::encode(fragmented);
+    assert(encodedFragment);
+    assert(encodedFragment.value().size() == 10);
+    frameCodec.reset();
+    const auto decodedFragment = frameCodec.feed(encodedFragment.value());
+    assert(decodedFragment && decodedFragment.value().size() == 1);
+    assert(decodedFragment.value().front().totalSize == 70000);
+
+    const std::vector<std::uint8_t> rejectedResponse{
+        0x00, 0x03, 0x00, 0x08, 0x00, 0x02, 0x00, 0x01,
+        0x00, 0x06, 0x00, 0x01};
+    frameCodec.reset();
+    const auto rejectedFrames = frameCodec.feed(rejectedResponse);
+    assert(rejectedFrames && rejectedFrames.value().size() == 1);
+    const auto rejectedVersion =
+        parseAndroidAutoVersionResponse(rejectedFrames.value().front());
+    assert(!rejectedVersion);
+    assert(rejectedVersion.error() ==
+        AndroidAutoProtocolError::VersionRejected);
+
+    AndroidAutoCapabilities aaCapabilities;
+    aaCapabilities.video = {AndroidAutoVideoCodec::H264, 1280, 720, 30};
+    aaCapabilities.touch = true;
+    aaCapabilities.mediaAudio = true;
+    aaCapabilities.navigationAudio = true;
+    assert(androidAuto.negotiated(aaCapabilities));
+    assert(androidAuto.status().state == AndroidAutoHostState::Streaming);
+    assert(androidAuto.acceptVideo({1000, true, {0x00, 0x00, 0x00, 0x01}}));
+    assert(androidAuto.status().receivedVideoPackets == 1);
+    assert(androidAuto.takeVideo()->keyFrame);
+    assert(androidAuto.acceptAudio({
+        AndroidAutoAudioChannel::Media, 48000, 2, {0x00, 0x01}}));
+    assert(androidAuto.status().receivedAudioPackets == 1);
+    assert(androidAuto.takeAudio()->sampleRate == 48000);
+    assert(androidAuto.validateTouch({
+        AndroidAutoTouchAction::Down, 0.5f, 0.25f, 2000}));
+    assert(!androidAuto.validateTouch({
+        AndroidAutoTouchAction::Move, 1.5f, 0.25f, 2100}));
+    androidAuto.suspend();
+    assert(androidAuto.status().state == AndroidAutoHostState::Suspended);
+    androidAuto.resume();
+    assert(androidAuto.status().state == AndroidAutoHostState::Streaming);
+    androidAuto.transportDisconnected(AndroidAutoError::ConnectionClosed);
+    assert(androidAuto.status().state == AndroidAutoHostState::Reconnecting);
+    assert(androidAuto.transportConnected());
+    androidAuto.fail(AndroidAutoError::ProtocolMismatch);
+    assert(androidAuto.status().state == AndroidAutoHostState::Failed);
+    androidAuto.reset();
+    assert(androidAuto.status().state == AndroidAutoHostState::Stopped);
 
     CompanionSession session;
     const auto invalidPairing = session.begin("123", "TEST", "0123456789abcdef0123456789abcdef");
@@ -127,8 +222,11 @@ int main() {
     assert(customizationPing.value().find("\"customizationRevision\":6") !=
         std::string::npos);
     const auto customizationPong = session.receive(
-        R"({"version":3,"type":"pong","sequence":5,"media":{"title":"Drive","artist":"Switch Auto","playing":true},"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
+        R"({"version":3,"type":"pong","sequence":5,"media":{"title":"Drive","artist":"Switch Auto","playing":true},"androidAutoBootstrap":{"schemaVersion":1,"state":"ready","mode":"developer_server_relay","port":5288},"customization":{"schemaVersion":1,"revision":7,"themeId":"default-dark","layoutId":"automotive","layout":{"schemaVersion":1,"widgets":[{"id":"core.gps","column":0,"row":0,"columnSpan":8,"rowSpan":8,"minColumns":5,"minRows":4,"visible":1},{"id":"core.speed","column":8,"row":0,"columnSpan":4,"rowSpan":2,"minColumns":2,"minRows":2,"visible":1},{"id":"core.media","column":8,"row":2,"columnSpan":4,"rowSpan":6,"minColumns":3,"minRows":3,"visible":1}]}}})");
     assert(customizationPong);
+    assert(session.status().remoteAndroidAutoBootstrap);
+    assert(session.status().remoteAndroidAutoBootstrap->ready);
+    assert(session.status().remoteAndroidAutoBootstrap->port == 5288);
     assert(session.status().remoteCustomization.has_value());
     assert(session.status().remoteCustomization->revision == 7);
     assert(session.status().remoteCustomization->themeId == "default-dark");

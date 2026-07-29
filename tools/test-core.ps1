@@ -13,6 +13,8 @@ $sources = @(
     (Join-Path $root 'core\source\widget.cpp'),
     (Join-Path $root 'core\source\widget_layout.cpp'),
     (Join-Path $root 'core\source\application.cpp'),
+    (Join-Path $root 'core\source\android_auto.cpp'),
+    (Join-Path $root 'core\source\android_auto_protocol.cpp'),
     (Join-Path $root 'core\source\companion.cpp'),
     (Join-Path $root 'core\source\crypto.cpp'),
     (Join-Path $root 'core\source\localization.cpp'),

@@ -77,6 +77,12 @@ struct RemoteCustomization {
     std::string layoutJson;
 };
 
+struct RemoteAndroidAutoBootstrap {
+    bool ready = false;
+    std::string mode;
+    std::uint16_t port = 0;
+};
+
 struct CompanionStatus {
     CompanionConnectionState state = CompanionConnectionState::Disconnected;
     CompanionError lastError = CompanionError::None;
@@ -87,6 +93,7 @@ struct CompanionStatus {
     std::optional<RemoteMapFrame> remoteMapFrame;
     std::optional<RemoteMedia> remoteMedia;
     std::optional<RemoteCustomization> remoteCustomization;
+    std::optional<RemoteAndroidAutoBootstrap> remoteAndroidAutoBootstrap;
     std::string sessionId;
     std::string endpointAddress;
     std::uint32_t retryAttempt = 0;

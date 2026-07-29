@@ -258,6 +258,21 @@ Result<std::optional<std::string>, CompanionError> CompanionSession::receive(std
                     *revision, *themeId, *layoutId, *layout};
             }
         }
+        status_.remoteAndroidAutoBootstrap.reset();
+        if (const auto bootstrap = objectField(line, "androidAutoBootstrap")) {
+            const auto schema = unsignedField(*bootstrap, "schemaVersion");
+            const auto state = stringField(*bootstrap, "state");
+            const auto mode = stringField(*bootstrap, "mode");
+            const auto port = unsignedField(*bootstrap, "port");
+            if (schema && *schema == 1 && state && mode && port &&
+                *port > 0 && *port <= 65535) {
+                status_.remoteAndroidAutoBootstrap =
+                    RemoteAndroidAutoBootstrap{
+                        *state == "ready",
+                        *mode,
+                        static_cast<std::uint16_t>(*port)};
+            }
+        }
         pendingSequence_.reset();
         return Result<std::optional<std::string>, CompanionError>::success(std::nullopt);
     }

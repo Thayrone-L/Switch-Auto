@@ -71,8 +71,12 @@
 ## Marco 3 — Host Android Auto experimental
 
 - [x] registrar a decisão arquitetural e preservar o MapLibre como fallback;
-- avaliar AASDK, Headunit Revived e OpenAutoLink, incluindo licenças;
-- definir os canais internos de projeção, áudio e input;
+- [x] avaliar AASDK, Headunit Revived e OpenAutoLink, incluindo licenças;
+- [x] definir os canais internos de projeção, áudio e input;
+- [x] criar o contrato `AndroidAutoHostService` e a máquina de estados;
+- [x] criar o adaptador TCP inicial do Switch usando o endpoint do Companion;
+- [x] implementar framing incremental e negociação da versão do protocolo;
+- [x] criar bootstrap assistido e relay do servidor de desenvolvimento Android;
 - anunciar ou disponibilizar o Switch como head unit;
 - concluir handshake e sessão com o Android Auto;
 - receber e decodificar o primeiro quadro de vídeo;
