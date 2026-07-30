@@ -12,6 +12,8 @@ constexpr std::uint8_t kEncryptedFlag = 0x08;
 constexpr std::uint8_t kKnownFlags = 0x0f;
 constexpr std::uint16_t kVersionRequestMessage = 0x0001;
 constexpr std::uint16_t kVersionResponseMessage = 0x0002;
+constexpr std::uint16_t kEncapsulatedSslMessage = 0x0003;
+constexpr std::uint16_t kAuthCompleteMessage = 0x0004;
 
 std::uint16_t read16(const std::uint8_t* bytes) {
     return static_cast<std::uint16_t>(
@@ -34,6 +36,21 @@ void append32(std::vector<std::uint8_t>& target, std::uint32_t value) {
     target.push_back(static_cast<std::uint8_t>(value >> 16));
     target.push_back(static_cast<std::uint8_t>(value >> 8));
     target.push_back(static_cast<std::uint8_t>(value));
+}
+
+std::vector<std::uint8_t> encodeControlMessage(
+    std::uint16_t messageId, const std::uint8_t* data, std::size_t size) {
+    if (size > AndroidAutoFrameCodec::kMaximumMessageSize - 2) return {};
+    AndroidAutoFrame frame;
+    frame.channel = 0;
+    frame.type = AndroidAutoFrameType::Bulk;
+    frame.payload.reserve(size + 2);
+    append16(frame.payload, messageId);
+    if (data != nullptr && size > 0) {
+        frame.payload.insert(frame.payload.end(), data, data + size);
+    }
+    auto encoded = AndroidAutoFrameCodec::encode(frame);
+    return encoded ? std::move(encoded.value()) : std::vector<std::uint8_t>{};
 }
 
 }  // namespace
@@ -143,14 +160,11 @@ void AndroidAutoFrameCodec::reset() {
 
 std::vector<std::uint8_t> makeAndroidAutoVersionRequest(
     std::uint16_t major, std::uint16_t minor) {
-    AndroidAutoFrame request;
-    request.channel = 0;
-    request.type = AndroidAutoFrameType::Bulk;
-    append16(request.payload, kVersionRequestMessage);
-    append16(request.payload, major);
-    append16(request.payload, minor);
-    auto encoded = AndroidAutoFrameCodec::encode(request);
-    return encoded ? std::move(encoded.value()) : std::vector<std::uint8_t>{};
+    std::vector<std::uint8_t> payload;
+    append16(payload, major);
+    append16(payload, minor);
+    return encodeControlMessage(
+        kVersionRequestMessage, payload.data(), payload.size());
 }
 
 Result<AndroidAutoProtocolVersion, AndroidAutoProtocolError>
@@ -174,6 +188,37 @@ parseAndroidAutoVersionResponse(const AndroidAutoFrame& frame) {
     }
     return Result<AndroidAutoProtocolVersion,
         AndroidAutoProtocolError>::success(version);
+}
+
+std::vector<std::uint8_t> makeAndroidAutoTlsHandshake(
+    const std::uint8_t* data, std::size_t size) {
+    return encodeControlMessage(kEncapsulatedSslMessage, data, size);
+}
+
+Result<std::vector<std::uint8_t>, AndroidAutoProtocolError>
+parseAndroidAutoTlsHandshake(const AndroidAutoFrame& frame) {
+    if (frame.channel != 0 || frame.type != AndroidAutoFrameType::Bulk ||
+        frame.encrypted || frame.payload.size() < 2 ||
+        read16(frame.payload.data()) != kEncapsulatedSslMessage) {
+        return Result<std::vector<std::uint8_t>,
+            AndroidAutoProtocolError>::failure(
+            AndroidAutoProtocolError::InvalidTlsHandshake);
+    }
+    return Result<std::vector<std::uint8_t>,
+        AndroidAutoProtocolError>::success(
+        std::vector<std::uint8_t>(
+            frame.payload.begin() + 2, frame.payload.end()));
+}
+
+std::vector<std::uint8_t> makeAndroidAutoAuthComplete(std::int32_t status) {
+    // AuthResponse is proto2: required int32 status = 1.
+    // The only currently valid status is success (0), encoded as tag 0x08,
+    // value 0x00. Keep non-zero support limited to the one-byte varint range.
+    if (status < 0 || status > 0x7f) return {};
+    const std::uint8_t payload[]{
+        0x08, static_cast<std::uint8_t>(status)};
+    return encodeControlMessage(
+        kAuthCompleteMessage, payload, sizeof(payload));
 }
 
 }  // namespace switch_auto

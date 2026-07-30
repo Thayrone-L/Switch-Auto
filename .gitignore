@@ -16,6 +16,8 @@ Desktop.ini
 *.keystore
 *.jks
 tools/devices.local.json
+/resources/android-auto/*.crt
+/resources/android-auto/*.key
 
 # Android / Gradle
 .gradle/

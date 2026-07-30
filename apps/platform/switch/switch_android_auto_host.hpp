@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -38,6 +40,7 @@ private:
     void run();
     void publish();
     void disconnectSocket();
+    std::optional<AndroidAutoTouchEvent> takePendingTouch();
 
     EventQueue& events_;
     EndpointProvider endpointProvider_;
@@ -46,9 +49,12 @@ private:
     StatusHandler statusHandler_;
     VideoHandler videoHandler_;
     AudioHandler audioHandler_;
+    std::deque<AndroidAutoTouchEvent> pendingTouches_;
     std::thread worker_;
     std::atomic<bool> stopRequested_{false};
     std::atomic<int> activeSocket_{-1};
+    std::mutex stopMutex_;
+    std::condition_variable stopCondition_;
 };
 
 }  // namespace switch_auto::platform::switch_platform

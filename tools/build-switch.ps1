@@ -46,7 +46,7 @@ try {
         '-DCMAKE_MAKE_PROGRAM=/usr/bin/make.exe'
     if ($LASTEXITCODE -ne 0) { throw "Switch configuration failed." }
 
-    & cmake --build '/s/build/borealis-switch' --target switch-auto.nro --parallel
+    & cmake --build '/s/build/borealis-switch' --target switch-auto.nro --parallel -- -s
     if ($LASTEXITCODE -ne 0) { throw "Switch build failed." }
 
     Copy-Item -LiteralPath (Join-Path $buildDirectory 'switch-auto.nro') -Destination $nroOutput -Force

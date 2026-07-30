@@ -112,7 +112,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         customizationManager = CustomizationManager(this)
-        androidAutoBootstrap = AndroidAutoBootstrapManager(this)
+        androidAutoBootstrap = AndroidAutoBootstrapManager(this, ::appendLog)
         setContentView(buildUi())
         customizationManager.onStateChanged = {
             runOnUiThread(::refreshCustomizationViews)

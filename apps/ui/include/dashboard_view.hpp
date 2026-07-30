@@ -2,6 +2,7 @@
 
 #include <borealis.hpp>
 
+#include "android_auto_video_view.hpp"
 #include "switch_auto/companion.hpp"
 #include "switch_auto/services.hpp"
 #include "switch_auto/widget_layout.hpp"
@@ -36,7 +37,7 @@ private:
     BRLS_BIND(brls::Label, speedUnitLabel_, "speed-unit");
     BRLS_BIND(brls::Label, gpsStatusLabel_, "gps-status");
     BRLS_BIND(brls::Label, gpsCoordinatesLabel_, "gps-coordinates");
-    BRLS_BIND(brls::Image, mapImage_, "map-image");
+    BRLS_BIND(AndroidAutoVideoView, mapImage_, "map-image");
     BRLS_BIND(brls::Box, gpsWidgetBox_, "widget-gps");
     BRLS_BIND(brls::Box, speedWidgetBox_, "widget-speed");
     BRLS_BIND(brls::Box, mediaWidgetBox_, "widget-media");

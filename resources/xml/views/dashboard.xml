@@ -2,21 +2,20 @@
     width="auto"
     height="auto"
     axis="column"
-    paddingTop="38px"
-    paddingRight="48px"
-    paddingBottom="38px"
-    paddingLeft="48px"
+    paddingTop="8px"
+    paddingRight="8px"
+    paddingBottom="8px"
+    paddingLeft="8px"
     backgroundColor="#090d14">
 
-    <brls:Box width="auto" height="72px" axis="row" alignItems="center">
+    <brls:Box width="auto" height="40px" axis="row" alignItems="center">
         <brls:Label
-            id="clock" width="18%" height="auto"
-            text="--:--" fontSize="46"
+            id="clock" width="110px" height="auto"
+            text="--:--" fontSize="28"
             horizontalAlign="left" />
         <brls:Box
-            width="74px" height="54px" axis="row" alignItems="center"
-            paddingLeft="6px" paddingRight="6px"
-            backgroundColor="#111925" cornerRadius="18">
+            width="48px" height="36px" axis="row" alignItems="center"
+            backgroundColor="#111925" cornerRadius="12">
             <brls:Label
                 id="connection" width="0px" height="0px"
                 text="" fontSize="1"
@@ -24,26 +23,26 @@
             <brls:Button
                 id="connection-button"
                 text="●"
-                width="54px" height="42px" />
+                width="48px" height="36px" />
         </brls:Box>
         <brls:Label
             id="battery" width="auto" height="auto" grow="1.0"
-            text="--%" fontSize="22"
+            text="--%" fontSize="18"
             horizontalAlign="right" />
     </brls:Box>
 
-    <brls:Box width="auto" height="auto" axis="row" grow="1.0" marginTop="22px">
+    <brls:Box width="auto" height="auto" axis="row" grow="1.0" marginTop="6px">
         <brls:Box
             id="widget-gps"
-            width="68%" height="auto" axis="column"
-            backgroundColor="#111925" cornerRadius="24">
-            <brls:Image
+            width="auto" height="auto" axis="column" grow="1.0"
+            backgroundColor="#111925" cornerRadius="12">
+            <AndroidAutoVideoView
                 id="map-image"
                 width="auto" height="auto" grow="1.0"
                 scalingType="fill" />
         </brls:Box>
 
-        <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="24px">
+        <brls:Box width="auto" height="auto" axis="column" grow="1.0" marginLeft="12px">
             <brls:Box
                 id="widget-speed"
                 width="auto" height="122px" axis="row"

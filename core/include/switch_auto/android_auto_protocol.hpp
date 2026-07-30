@@ -15,6 +15,7 @@ enum class AndroidAutoProtocolError {
     UnexpectedMessage,
     InvalidVersionResponse,
     VersionRejected,
+    InvalidTlsHandshake,
 };
 
 enum class AndroidAutoFrameType : std::uint8_t {
@@ -63,5 +64,18 @@ std::vector<std::uint8_t> makeAndroidAutoVersionRequest(
 
 Result<AndroidAutoProtocolVersion, AndroidAutoProtocolError>
 parseAndroidAutoVersionResponse(const AndroidAutoFrame& frame);
+
+std::vector<std::uint8_t> makeAndroidAutoTlsHandshake(
+    const std::uint8_t* data, std::size_t size);
+inline std::vector<std::uint8_t> makeAndroidAutoTlsHandshake(
+    const std::vector<std::uint8_t>& data) {
+    return makeAndroidAutoTlsHandshake(data.data(), data.size());
+}
+
+Result<std::vector<std::uint8_t>, AndroidAutoProtocolError>
+parseAndroidAutoTlsHandshake(const AndroidAutoFrame& frame);
+
+std::vector<std::uint8_t> makeAndroidAutoAuthComplete(
+    std::int32_t status = 0);
 
 }  // namespace switch_auto

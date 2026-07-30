@@ -402,7 +402,7 @@ SwitchTcpCompanionService::SwitchTcpCompanionService(EventQueue& events)
 }
 
 SwitchTcpCompanionService::~SwitchTcpCompanionService() {
-    disconnect();
+    stopTransport(false);
 }
 
 Result<void, CompanionError> SwitchTcpCompanionService::startAutomaticPairing() {
@@ -443,13 +443,17 @@ Result<void, CompanionError> SwitchTcpCompanionService::connect(
 }
 
 void SwitchTcpCompanionService::disconnect() {
+    stopTransport(true);
+}
+
+void SwitchTcpCompanionService::stopTransport(bool publishDisconnected) {
     stopRequested_ = true;
     waitCondition_.notify_all();
     const int socketFd = activeSocket_.load();
     if (socketFd >= 0) ::shutdown(socketFd, SHUT_RDWR);
     if (worker_.joinable()) worker_.join();
     brls::Logger::info("Companion transport: disconnected");
-    publish({});
+    if (publishDisconnected) publish({});
 }
 
 CompanionStatus SwitchTcpCompanionService::status() const {

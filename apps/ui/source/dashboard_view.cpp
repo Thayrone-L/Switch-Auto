@@ -21,8 +21,6 @@ DashboardView* DashboardView::active_ = nullptr;
 
 namespace {
 
-constexpr float kMapPanSensitivity = 0.40f;
-
 #ifdef __SWITCH__
 constexpr const char* kLayoutDirectory = "sdmc:/switch/switch-auto/config";
 constexpr const char* kLayoutPath =
@@ -95,14 +93,35 @@ DashboardView::DashboardView() {
     inflateFromXMLRes("xml/views/dashboard.xml");
     applyWidgetLayout();
     gpsWidgetBox_->addGestureRecognizer(new brls::PanGestureRecognizer(
-        [](brls::PanGestureStatus status, brls::Sound*) {
-            if (status.state == brls::GestureState::STAY && companion_) {
-                companion_->panMap(
-                    -status.delta.x * kMapPanSensitivity,
-                    -status.delta.y * kMapPanSensitivity);
+        [this](brls::PanGestureStatus status, brls::Sound*) {
+            AndroidAutoTouchAction action = AndroidAutoTouchAction::Up;
+            switch (status.state) {
+                case brls::GestureState::UNSURE:
+                    return;
+                case brls::GestureState::START:
+                case brls::GestureState::STAY:
+                    action = AndroidAutoTouchAction::Move;
+                    break;
+                case brls::GestureState::END:
+                case brls::GestureState::FAILED:
+                case brls::GestureState::INTERRUPTED:
+                    action = AndroidAutoTouchAction::Up;
+                    break;
             }
+            mapImage_->dispatchTouch(action, status.position);
         },
         brls::PanAxis::ANY));
+    gpsWidgetBox_->addGestureRecognizer(new brls::TapGestureRecognizer(
+        [this](brls::TapGestureStatus status, brls::Sound*) {
+            if (status.state == brls::GestureState::UNSURE ||
+                status.state == brls::GestureState::START) {
+                mapImage_->dispatchTouch(
+                    AndroidAutoTouchAction::Down, status.position);
+            } else if (status.state == brls::GestureState::END) {
+                mapImage_->dispatchTouch(
+                    AndroidAutoTouchAction::Up, status.position);
+            }
+        }));
     connectionButton_->registerClickAction([](brls::View*) {
         CompanionService* service = companion_;
         brls::sync([service]() { openConnectionScreen(service); });
@@ -131,25 +150,14 @@ DashboardView::~DashboardView() {
 }
 
 void DashboardView::applyWidgetLayout() {
-    const auto* gps = widgetLayout_.find("core.gps");
-    const auto* speed = widgetLayout_.find("core.speed");
-    const auto* media = widgetLayout_.find("core.media");
-    if (gps) {
-        gpsWidgetBox_->setVisibility(gps->visible
-            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
-        gpsWidgetBox_->setWidthPercentage(
-            static_cast<float>(gps->columnSpan) / kWidgetGridColumns * 100.0f);
-    }
-    if (speed) {
-        speedWidgetBox_->setVisibility(speed->visible
-            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
-        speedWidgetBox_->setHeight(
-            488.0f * static_cast<float>(speed->rowSpan) / kWidgetGridRows);
-    }
-    if (media) {
-        mediaWidgetBox_->setVisibility(media->visible
-            ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
-        mediaWidgetBox_->setGrow(media->visible ? 1.0f : 0.0f);
+    // Android Auto is the primary surface. Keep legacy widgets inflated for
+    // their bindings, but remove their entire column from layout.
+    gpsWidgetBox_->setVisibility(brls::Visibility::VISIBLE);
+    gpsWidgetBox_->setWidthPercentage(100.0f);
+    gpsWidgetBox_->setGrow(1.0f);
+    if (auto* legacyColumn = speedWidgetBox_->getParent()) {
+        legacyColumn->setVisibility(brls::Visibility::GONE);
+        legacyColumn->setGrow(0.0f);
     }
 }
 

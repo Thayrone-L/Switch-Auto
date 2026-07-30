@@ -49,6 +49,25 @@ int main() {
     assert(parsedVersion.value().major == 1);
     assert(parsedVersion.value().minor == 6);
 
+    const std::vector<std::uint8_t> clientHello{
+        0x16, 0x03, 0x03, 0x00, 0x02, 0x01, 0x00};
+    const auto tlsPacket = makeAndroidAutoTlsHandshake(clientHello);
+    const std::vector<std::uint8_t> expectedTlsPacket{
+        0x00, 0x03, 0x00, 0x09, 0x00, 0x03,
+        0x16, 0x03, 0x03, 0x00, 0x02, 0x01, 0x00};
+    assert(tlsPacket == expectedTlsPacket);
+    frameCodec.reset();
+    const auto tlsFrames = frameCodec.feed(tlsPacket);
+    assert(tlsFrames && tlsFrames.value().size() == 1);
+    const auto parsedTls =
+        parseAndroidAutoTlsHandshake(tlsFrames.value().front());
+    assert(parsedTls && parsedTls.value() == clientHello);
+
+    const auto authComplete = makeAndroidAutoAuthComplete();
+    const std::vector<std::uint8_t> expectedAuthComplete{
+        0x00, 0x03, 0x00, 0x04, 0x00, 0x04, 0x08, 0x00};
+    assert(authComplete == expectedAuthComplete);
+
     std::vector<std::uint8_t> concatenated = versionResponse;
     concatenated.insert(
         concatenated.end(), versionResponse.begin(), versionResponse.end());

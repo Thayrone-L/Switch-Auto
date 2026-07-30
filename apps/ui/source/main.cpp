@@ -8,6 +8,7 @@
 #endif
 
 #include "connection_view.hpp"
+#include "android_auto_video_view.hpp"
 #include "dashboard_view.hpp"
 #include "qr_code_view.hpp"
 #include "localization_adapter.hpp"
@@ -177,6 +178,11 @@ int main(int argc, char** argv) {
 #endif
     });
 #ifdef __SWITCH__
+    switch_auto::ui::AndroidAutoVideoView::setTouchHandler(
+        [host = androidAutoHost.get()](
+            const switch_auto::AndroidAutoTouchEvent& event) {
+            if (host) host->sendTouch(event);
+        });
     androidAutoHost->setStatusHandler([](
         const switch_auto::AndroidAutoHostStatus& status) {
         brls::Logger::info("Android Auto host state={} error={} endpoint={}",
@@ -191,6 +197,8 @@ int main(int argc, char** argv) {
     brls::Application::setGlobalQuit(true);
     brls::Application::registerXMLView(
         "DashboardView", switch_auto::ui::DashboardView::create);
+    brls::Application::registerXMLView("AndroidAutoVideoView",
+        switch_auto::ui::AndroidAutoVideoView::create);
     brls::Application::registerXMLView(
         "QrCodeView", switch_auto::ui::QrCodeView::create);
     brls::Logger::info("Switch Auto stage: dashboard-registered");
@@ -208,17 +216,65 @@ int main(int argc, char** argv) {
         }
     });
 
+#ifdef __SWITCH__
+    bool shutdownDone = false;
+    auto shutdownServices = [&]() {
+        if (shutdownDone) return;
+        shutdownDone = true;
+        brls::Logger::info("Switch Auto shutdown: begin");
+        switch_auto::ui::AndroidAutoVideoView::setTouchHandler({});
+        brls::Logger::info("Switch Auto shutdown: touch handler cleared");
+        if (androidAutoHost) {
+            androidAutoHost->setStatusHandler({});
+            androidAutoHost->stop();
+            brls::Logger::info(
+                "Switch Auto shutdown: Android Auto host stopped");
+            androidAutoHost.reset();
+            brls::Logger::info(
+                "Switch Auto shutdown: Android Auto host destroyed");
+        }
+        switch_auto::ui::DashboardView::setCompanionService(nullptr);
+        if (companion) {
+            companion->setStatusHandler({});
+            companion->disconnect();
+            events.drain();
+            brls::Logger::info("Switch Auto shutdown: Companion stopped");
+            companion.reset();
+            events.drain();
+            brls::Logger::info("Switch Auto shutdown: Companion destroyed");
+        }
+    };
+    brls::Application::getExitEvent()->subscribe(shutdownServices);
+#endif
+
     brls::Logger::info("Switch Auto stage: entering-main-loop");
     while (brls::Application::mainLoop()) {
         events.drain();
+#ifdef __SWITCH__
+        // The bootstrap state may already be available before the status
+        // handler is registered, so the callback alone is not a reliable
+        // startup trigger. start() is idempotent and changes the state away
+        // from Stopped before launching the worker.
+        if (androidAutoHost &&
+            androidAutoHost->status().state ==
+                switch_auto::AndroidAutoHostState::Stopped) {
+            const auto status = companion->status();
+            if (status.state ==
+                    switch_auto::CompanionConnectionState::Online &&
+                status.remoteAndroidAutoBootstrap &&
+                status.remoteAndroidAutoBootstrap->ready) {
+                brls::Logger::info(
+                    "Android Auto host: bootstrap ready during main loop, starting");
+                androidAutoHost->start();
+            }
+        }
+#endif
     }
 #ifdef __SWITCH__
-    androidAutoHost->setStatusHandler({});
-    androidAutoHost->stop();
-    androidAutoHost.reset();
-    switch_auto::ui::DashboardView::setCompanionService(nullptr);
-    companion->setStatusHandler({});
-    companion.reset();
+    // The normal path runs from Borealis' exit event, before the Switch
+    // platform tears down libnx networking. Keep this as an idempotent
+    // fallback for platforms that return from the loop without firing it.
+    shutdownServices();
 #endif
     if (diagnosticLog) {
         brls::Logger::setLogOutput(nullptr);

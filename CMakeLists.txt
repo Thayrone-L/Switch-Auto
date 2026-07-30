@@ -19,6 +19,7 @@ endif()
 add_subdirectory(extern/borealis/library)
 
 set(SWITCH_AUTO_SOURCES
+    apps/ui/source/android_auto_video_view.cpp
     apps/ui/source/connection_view.cpp
     apps/ui/source/dashboard_view.cpp
     apps/ui/source/localization_adapter.cpp
@@ -37,6 +38,7 @@ set(SWITCH_AUTO_SOURCES
 if(PLATFORM_SWITCH)
     list(APPEND SWITCH_AUTO_SOURCES
         apps/platform/switch/switch_android_auto_host.cpp
+        apps/platform/switch/switch_h264_decoder.cpp
         apps/platform/switch/switch_tcp_companion_service.cpp
         apps/platform/switch/switch_device_identity.cpp
         extern/borealis/library/lib/platforms/switch/switch_wrapper.c
@@ -54,7 +56,11 @@ target_include_directories(switch-auto PRIVATE
     extern/qrcodegen
 )
 if(PLATFORM_SWITCH)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SWITCH_FFMPEG REQUIRED IMPORTED_TARGET
+        libavcodec libavutil libswscale)
     target_include_directories(switch-auto PRIVATE apps/platform/switch)
+    target_link_libraries(switch-auto PRIVATE PkgConfig::SWITCH_FFMPEG)
 endif()
 target_compile_options(switch-auto PRIVATE
     -Wall

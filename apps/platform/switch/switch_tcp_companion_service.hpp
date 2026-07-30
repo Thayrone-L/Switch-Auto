@@ -32,6 +32,7 @@ public:
     void controlMedia(std::string_view action) override;
 
 private:
+    void stopTransport(bool publishDisconnected);
     void runAutomatic();
     void runManual(CompanionEndpoint endpoint, std::string pairingToken);
     CompanionError runSession(const CompanionEndpoint& endpoint,
