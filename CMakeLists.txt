@@ -64,6 +64,7 @@ if(PLATFORM_SWITCH)
 
     set(SWITCH_AUTO_V2_SOURCES
         v2/apps/switch/source/main.cpp
+        v2/platform/switch/source/nvtegra_h264_decoder.cpp
         v2/platform/switch/source/nvtegra_probe.cpp
         extern/borealis/library/lib/platforms/switch/switch_wrapper.c
     )

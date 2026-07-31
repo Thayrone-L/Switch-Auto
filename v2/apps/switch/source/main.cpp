@@ -2,7 +2,9 @@
 #include <switch.h>
 
 #include <cstdio>
+#include <memory>
 
+#include "switch_auto_v2/platform/nvtegra_h264_decoder.hpp"
 #include "switch_auto_v2/platform/nvtegra_probe.hpp"
 
 namespace {
@@ -23,7 +25,7 @@ struct Renderer {
     DkCmdList clearScreen{};
     DkQueue queue{};
 
-    bool initialize() {
+    bool initialize(float red, float green, float blue) {
         DkDeviceMaker deviceMaker;
         dkDeviceMakerDefaults(&deviceMaker);
         device = dkDeviceCreate(&deviceMaker);
@@ -80,7 +82,7 @@ struct Renderer {
             bindFramebuffer[index] = dkCmdBufFinishList(commandBuffer);
         }
         dkCmdBufClearColorFloat(commandBuffer, 0, DkColorMask_RGBA,
-            0.035f, 0.055f, 0.09f, 1.0f);
+            red, green, blue, 1.0f);
         clearScreen = dkCmdBufFinishList(commandBuffer);
 
         DkQueueMaker queueMaker;
@@ -126,8 +128,19 @@ int main() {
         ? "startup: NVTEGRA ready"
         : "startup: NVTEGRA unavailable");
 
+    auto decoder = std::make_unique<
+        switch_auto::v2::platform::NvTegraH264Decoder>();
+    const bool decoderReady = nvtegra.available &&
+        decoder->initialize(kWidth, kHeight, 60);
+    logStage(log, decoderReady
+        ? "startup: H.264 NVTEGRA decoder ready"
+        : decoder->lastError());
+
     Renderer renderer;
-    if (!renderer.initialize()) {
+    if (!renderer.initialize(
+            decoderReady ? 0.02f : 0.35f,
+            decoderReady ? 0.28f : 0.02f,
+            decoderReady ? 0.10f : 0.02f)) {
         logStage(log, "startup: Deko3D initialization failed");
         if (log) std::fclose(log);
         return 1;
@@ -146,6 +159,8 @@ int main() {
     logStage(log, "shutdown: requested");
     renderer.shutdown();
     logStage(log, "shutdown: Deko3D released");
+    decoder.reset();
+    logStage(log, "shutdown: decoder released");
     switch_auto::v2::platform::shutdownNvTegra();
     logStage(log, "shutdown: NVTEGRA released");
     if (log) std::fclose(log);

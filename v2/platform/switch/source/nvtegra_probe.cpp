@@ -64,4 +64,8 @@ void shutdownNvTegra() {
     av_buffer_unref(&retainedDevice);
 }
 
+AVBufferRef* acquireNvTegraDevice() {
+    return retainedDevice ? av_buffer_ref(retainedDevice) : nullptr;
+}
+
 }  // namespace switch_auto::v2::platform

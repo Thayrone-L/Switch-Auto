@@ -2,6 +2,10 @@
 
 #include <string>
 
+extern "C" {
+struct AVBufferRef;
+}
+
 namespace switch_auto::v2::platform {
 
 struct NvTegraProbeResult {
@@ -14,6 +18,7 @@ struct NvTegraProbeResult {
 };
 
 NvTegraProbeResult probeNvTegra();
+AVBufferRef* acquireNvTegraDevice();
 void shutdownNvTegra();
 
 }  // namespace switch_auto::v2::platform
