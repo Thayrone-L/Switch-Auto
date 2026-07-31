@@ -64,8 +64,18 @@ if(PLATFORM_SWITCH)
 
     set(SWITCH_AUTO_V2_SOURCES
         v2/apps/switch/source/main.cpp
+        apps/platform/switch/switch_android_auto_host.cpp
+        apps/platform/switch/switch_device_identity.cpp
+        apps/platform/switch/switch_tcp_companion_service.cpp
+        core/source/android_auto.cpp
+        core/source/android_auto_protocol.cpp
+        core/source/companion.cpp
+        core/source/crypto.cpp
+        core/source/widget_layout.cpp
         v2/platform/switch/source/nvtegra_h264_decoder.cpp
         v2/platform/switch/source/nvtegra_probe.cpp
+        v2/platform/switch/source/nvtegra_video_renderer.cpp
+        v2/core/source/video_surface_mailbox.cpp
         extern/borealis/library/lib/platforms/switch/switch_wrapper.c
     )
     program_target(switch-auto-v2 "${SWITCH_AUTO_V2_SOURCES}")
@@ -74,10 +84,15 @@ if(PLATFORM_SWITCH)
         CXX_STANDARD_REQUIRED ON
     )
     target_include_directories(switch-auto-v2 PRIVATE
+        apps/platform/switch
+        core/include
         v2/core/include
         v2/platform/switch/include
     )
-    target_compile_definitions(switch-auto-v2 PRIVATE __SWITCH__)
+    target_compile_definitions(switch-auto-v2 PRIVATE
+        __SWITCH__
+        SWITCH_AUTO_V2_PIPELINE
+    )
     target_compile_options(switch-auto-v2 PRIVATE
         -Wall
         -Wextra
@@ -90,6 +105,28 @@ if(PLATFORM_SWITCH)
         nx
         PkgConfig::SWITCH_FFMPEG
     )
+
+    add_custom_target(switch-auto-v2-resources
+        COMMAND "${CMAKE_COMMAND}" -E remove_directory
+                "${CMAKE_BINARY_DIR}/v2-resources"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${CMAKE_BINARY_DIR}/v2-resources/android-auto"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${CMAKE_BINARY_DIR}/v2-resources/shaders"
+        COMMAND /opt/devkitpro/tools/bin/uam.exe
+                "${CMAKE_CURRENT_SOURCE_DIR}/v2/apps/switch/shaders/fullscreen_vsh.glsl"
+                --stage vert
+                -o "${CMAKE_BINARY_DIR}/v2-resources/shaders/fullscreen_vsh.dksh"
+        COMMAND /opt/devkitpro/tools/bin/uam.exe
+                "${CMAKE_CURRENT_SOURCE_DIR}/v2/apps/switch/shaders/nv12_fsh.glsl"
+                --stage frag
+                -o "${CMAKE_BINARY_DIR}/v2-resources/shaders/nv12_fsh.dksh"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources/android-auto"
+                "${CMAKE_BINARY_DIR}/v2-resources/android-auto"
+        COMMENT "Staging Switch Auto V2 Android Auto credentials"
+    )
+    add_dependencies(switch-auto-v2 switch-auto-v2-resources)
 endif()
 target_compile_options(switch-auto PRIVATE
     -Wall
@@ -134,6 +171,7 @@ if(PLATFORM_SWITCH)
         COMMAND ${NX_ELF2NRO_EXE} switch-auto-v2.elf switch-auto-v2.nro
                 --icon=${PROJECT_ICON}
                 --nacp=switch-auto-v2.nacp
+                --romfsdir=${CMAKE_BINARY_DIR}/v2-resources
         COMMENT "Packaging Switch Auto V2 NVDEC probe"
     )
 endif()

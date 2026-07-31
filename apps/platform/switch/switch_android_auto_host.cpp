@@ -10,6 +10,7 @@
 #include <deque>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <switch.h>
 #include <sys/socket.h>
@@ -25,7 +26,12 @@
 #include <vector>
 
 #include "switch_auto/android_auto_protocol.hpp"
+#ifdef SWITCH_AUTO_V2_PIPELINE
+#include "switch_auto_v2/platform/nvtegra_h264_decoder.hpp"
+#include "switch_auto_v2/video/video_surface_mailbox.hpp"
+#else
 #include "switch_h264_decoder.hpp"
+#endif
 
 namespace switch_auto::platform::switch_platform {
 namespace {
@@ -44,7 +50,8 @@ constexpr std::uint8_t kDrivingStatusSensorType = 13;
 
 constexpr auto kConnectTimeout = std::chrono::seconds(5);
 constexpr auto kPollInterval = std::chrono::milliseconds(100);
-constexpr auto kReconnectDelay = std::chrono::seconds(2);
+constexpr auto kProjectionPollInterval = std::chrono::milliseconds(8);
+constexpr auto kReconnectDelay = std::chrono::milliseconds(750);
 constexpr auto kSecurityFailureDelay = std::chrono::seconds(30);
 constexpr auto kVersionTimeout = std::chrono::seconds(5);
 constexpr auto kTlsTimeout = std::chrono::seconds(12);
@@ -293,10 +300,11 @@ std::vector<std::uint8_t> makeServiceDiscoveryResponsePayload() {
     appendProtoVarint(sensorChannel, 1, 1);
     appendProtoBytes(sensorChannel, 2, sensorSource);
 
-    // Channel 2: H.264 video sink, 1280x720 at a stable 30 fps.
+    // Channel 2: H.264 video sink, 1280x720 at 60 fps.
     std::vector<std::uint8_t> videoConfiguration;
     appendProtoVarint(videoConfiguration, 1, 2);  // 1280x720
-    appendProtoVarint(videoConfiguration, 2, 1);  // VideoFPS::_30
+    // Android Auto VideoFPS enum: NONE = 0, _30 = 1, _60 = 2.
+    appendProtoVarint(videoConfiguration, 2, 2);  // VideoFPS::_60
     appendProtoVarint(videoConfiguration, 5, 160);
     appendProtoVarint(videoConfiguration, 6, 1);  // One extra decoder frame
 
@@ -428,7 +436,17 @@ bool sendEncryptedControl(SslConnection& connection, int bridgeSocket,
     frame.controlMessage = controlMessage;
     frame.payload = std::move(ciphertext);
     auto encoded = AndroidAutoFrameCodec::encode(frame);
-    return encoded && sendAll(phoneSocket, encoded.value(), stopRequested);
+    if (!encoded) {
+        logTls("outbound frame encode failed channel=" +
+            std::to_string(channel));
+        return false;
+    }
+    if (!sendAll(phoneSocket, encoded.value(), stopRequested)) {
+        logTls("outbound encrypted send failed channel=" +
+            std::to_string(channel) + " errno=" + std::to_string(errno));
+        return false;
+    }
+    return true;
 }
 
 using TouchSource =
@@ -436,20 +454,38 @@ using TouchSource =
 
 class AsyncVideoDecoder {
 public:
-    AsyncVideoDecoder() : worker_([this]() { run(); }) {}
+    AsyncVideoDecoder()
+#ifdef SWITCH_AUTO_V2_PIPELINE
+        : decoderReady_(decoder_.initialize(
+              kProjectionWidth, kProjectionHeight, 60)),
+          worker_([this]() { run(); }) {}
+#else
+        : worker_([this]() { run(); }) {}
+#endif
 
     ~AsyncVideoDecoder() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             stopping_ = true;
             packets_.clear();
+            enqueuedAt_.clear();
         }
         ready_.notify_one();
         if (worker_.joinable()) worker_.join();
+#ifdef SWITCH_AUTO_V2_PIPELINE
+        // The Deko3D imports must be released before decoder_ destroys the
+        // NVTEGRA pool. This blocks only at a projection-session boundary.
+        switch_auto::v2::video::requestDecodedSurfaceResetAndWait(
+            std::chrono::milliseconds(1500));
+#endif
     }
 
     bool available() const {
+#ifdef SWITCH_AUTO_V2_PIPELINE
+        return decoderReady_;
+#else
         return decoder_.available();
+#endif
     }
 
     bool enqueue(const std::uint8_t* data, std::size_t size) {
@@ -459,7 +495,7 @@ public:
             // Never discard compressed H.264 reference data. A pathological
             // backlog is safer to recover by reconnecting than by displaying a
             // corrupted stream until the next keyframe.
-            if (packets_.size() >= 256) return false;
+            if (packets_.size() >= 64) return false;
             std::vector<std::uint8_t> packet;
             if (!recycledPackets_.empty()) {
                 packet = std::move(recycledPackets_.back());
@@ -467,15 +503,18 @@ public:
             }
             packet.assign(data, data + size);
             packets_.push_back(std::move(packet));
+            enqueuedAt_.push_back(std::chrono::steady_clock::now());
             queueHighWater_ = std::max(queueHighWater_, packets_.size());
         }
         ready_.notify_one();
         return true;
     }
 
-    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> metrics() const {
+    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t,
+        std::uint64_t, std::uint64_t> metrics() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        return {decodedPackets_, totalDecodeMicros_, queueHighWater_};
+        return {decodedPackets_, totalDecodeMicros_, queueHighWater_,
+            totalQueueWaitMicros_, maximumQueueWaitMicros_};
     }
 
 private:
@@ -490,6 +529,14 @@ private:
                 if (stopping_ && packets_.empty()) return;
                 packet = std::move(packets_.front());
                 packets_.pop_front();
+                const auto enqueuedAt = enqueuedAt_.front();
+                enqueuedAt_.pop_front();
+                const auto queueWaitMicros = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - enqueuedAt).count());
+                totalQueueWaitMicros_ += queueWaitMicros;
+                maximumQueueWaitMicros_ = std::max(
+                    maximumQueueWaitMicros_, queueWaitMicros);
                 busy_ = true;
                 const auto now = std::chrono::steady_clock::now();
                 present = packets_.empty() ||
@@ -498,7 +545,29 @@ private:
                 if (present) lastPresentation_ = now;
             }
             const auto decodeStarted = std::chrono::steady_clock::now();
+#ifdef SWITCH_AUTO_V2_PIPELINE
+            using switch_auto::v2::video::DecodeStatus;
+            switch_auto::v2::video::EncodedAccessUnit accessUnit{
+                packet.data(), packet.size(), decodedPackets_};
+            auto status = decoder_.submit(accessUnit);
+            if (status == DecodeStatus::needsDrain) {
+                while (auto surface = decoder_.receive()) {
+                    ++decodedFrames_;
+                    switch_auto::v2::video::publishDecodedSurface(
+                        std::move(surface));
+                }
+                status = decoder_.submit(accessUnit);
+            }
+            if (status == DecodeStatus::accepted) {
+                while (auto surface = decoder_.receive()) {
+                    ++decodedFrames_;
+                    switch_auto::v2::video::publishDecodedSurface(
+                        std::move(surface));
+                }
+            }
+#else
             decoder_.decode(packet.data(), packet.size(), present);
+#endif
             const auto decodeMicros =
                 std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - decodeStarted)
@@ -510,7 +579,7 @@ private:
                 totalDecodeMicros_ +=
                     static_cast<std::uint64_t>(decodeMicros);
                 packet.clear();
-                if (recycledPackets_.size() < 2) {
+                if (recycledPackets_.size() < 64) {
                     recycledPackets_.push_back(std::move(packet));
                 }
             }
@@ -518,17 +587,26 @@ private:
         }
     }
 
+#ifdef SWITCH_AUTO_V2_PIPELINE
+    switch_auto::v2::platform::NvTegraH264Decoder decoder_;
+    bool decoderReady_ = false;
+    std::uint64_t decodedFrames_ = 0;
+#else
     SwitchH264Decoder decoder_;
+#endif
     mutable std::mutex mutex_;
     std::condition_variable ready_;
     std::condition_variable completed_;
     std::deque<std::vector<std::uint8_t>> packets_;
+    std::deque<std::chrono::steady_clock::time_point> enqueuedAt_;
     std::vector<std::vector<std::uint8_t>> recycledPackets_;
     bool busy_ = false;
     bool stopping_ = false;
     std::uint64_t decodedPackets_ = 0;
     std::uint64_t totalDecodeMicros_ = 0;
     std::uint64_t queueHighWater_ = 0;
+    std::uint64_t totalQueueWaitMicros_ = 0;
+    std::uint64_t maximumQueueWaitMicros_ = 0;
     std::chrono::steady_clock::time_point lastPresentation_{};
     std::thread worker_;
 };
@@ -541,7 +619,18 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
     std::array<std::uint8_t, 256> mediaSessions{};
     std::array<std::uint64_t, 256> mediaPacketCounts{};
     std::uint64_t videoPackets = 0;
-    const auto videoStartedAt = std::chrono::steady_clock::now();
+    auto videoWindowStartedAt = std::chrono::steady_clock::now();
+    auto lastVideoPacketAt = std::chrono::steady_clock::time_point{};
+    std::uint64_t videoWindowPackets = 0;
+    std::uint64_t videoWindowBytes = 0;
+    std::uint64_t videoGapMicros = 0;
+    std::uint64_t videoGapMaximumMicros = 0;
+    std::uint64_t videoAckMicros = 0;
+    std::uint64_t videoAckMaximumMicros = 0;
+    std::uint64_t lastVideoPts = 0;
+    std::uint64_t videoPtsDeltaMicros = 0;
+    std::uint64_t videoPtsDeltaMaximumMicros = 0;
+    std::uint64_t videoPtsSamples = 0;
     bool inputBound = false;
     std::array<std::vector<std::uint8_t>, 256> fragmentedPlaintext;
     AsyncVideoDecoder videoDecoder;
@@ -552,7 +641,7 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
         if (!inputBound) return true;
         // Keep input responsive without starving 60 fps video reads. A burst
         // of taps is spread over consecutive transport iterations.
-        constexpr std::size_t kMaxTouchesPerIteration = 4;
+        constexpr std::size_t kMaxTouchesPerIteration = 2;
         for (std::size_t sent = 0;
              sent < kMaxTouchesPerIteration && touchSource; ++sent) {
             auto touch = touchSource();
@@ -566,14 +655,22 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
         return true;
     };
     while (!stopRequested) {
-        if (!drainTouches()) return false;
+        if (!drainTouches()) {
+            logTls("session ended: touch send failed before poll");
+            return false;
+        }
         pollfd descriptor{
             phoneSocket, POLLIN | POLLHUP | POLLERR, 0};
         const int pollResult = ::poll(
-            &descriptor, 1, static_cast<int>(kPollInterval.count()));
+            &descriptor, 1,
+            static_cast<int>(kProjectionPollInterval.count()));
         if (pollResult < 0 && errno == EINTR) continue;
         if (pollResult < 0 ||
             (descriptor.revents & (POLLHUP | POLLERR | POLLNVAL))) {
+            logTls("session ended: phone poll failure result=" +
+                std::to_string(pollResult) + " revents=" +
+                std::to_string(descriptor.revents) + " errno=" +
+                std::to_string(errno));
             return false;
         }
         if (!(descriptor.revents & POLLIN)) continue;
@@ -581,13 +678,24 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
         std::uint8_t protocolBytes[16384];
         const ssize_t received = ::recv(
             phoneSocket, protocolBytes, sizeof(protocolBytes), 0);
-        if (received <= 0) return false;
+        if (received <= 0) {
+            logTls("session ended: phone recv=" +
+                std::to_string(received) + " errno=" +
+                std::to_string(errno));
+            return false;
+        }
         auto frames =
             codec.feed(protocolBytes, static_cast<std::size_t>(received));
-        if (!frames) return false;
+        if (!frames) {
+            logTls("session ended: AA frame decode failed");
+            return false;
+        }
 
         for (const auto& frame : frames.value()) {
-            if (!drainTouches()) return false;
+            if (!drainTouches()) {
+                logTls("session ended: touch send failed while receiving");
+                return false;
+            }
             if (!frame.encrypted ||
                 !sendAll(bridgeSocket, frame.payload, stopRequested)) {
                 logTls("unexpected post-auth frame");
@@ -645,7 +753,20 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                     std::to_string(frame.channel));
             }
 
-            if (frame.channel == 0 && messageId == 5 && !discoverySent) {
+            if (frame.channel == 0 && messageId == 13) {
+                // PingResponse mirrors the PingRequest protobuf payload so the
+                // phone can correlate its timestamp/nonce. Not answering this
+                // keepalive causes Android Auto to close an otherwise healthy
+                // projection session after its liveness timeout.
+                std::vector<std::uint8_t> response{0x00, 0x0e};
+                response.insert(response.end(), messageBytes + 2,
+                    messageBytes + messageSize);
+                if (!sendEncryptedControl(connection, bridgeSocket,
+                        phoneSocket, 0, response, stopRequested, true)) {
+                    return false;
+                }
+                logTls("ping response sent");
+            } else if (frame.channel == 0 && messageId == 5 && !discoverySent) {
                 std::vector<std::uint8_t> response{0x00, 0x06};
                 const auto payload = makeServiceDiscoveryResponsePayload();
                 response.insert(
@@ -710,18 +831,23 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 logTls("input binding accepted");
             } else if (frame.channel >= 2 && frame.channel <= 7 &&
                 messageId == 0x8000) {
+                // Keep the acknowledgement window conservative. A controlled
+                // max_unacked=2 experiment increased burstiness and caused
+                // repeated protocol/transport reconnects on the phone.
+                const std::uint8_t maxUnacked = 1;
                 // AVChannelSetupResponse {
-                //   media_status: OK, max_unacked: 1, configs: 0
+                //   media_status: OK, max_unacked, configs: 0
                 // }.
                 const std::vector<std::uint8_t> response{
-                    0x80, 0x03, 0x08, 0x02, 0x10, 0x01, 0x18, 0x00};
+                    0x80, 0x03, 0x08, 0x02, 0x10, maxUnacked, 0x18, 0x00};
                 if (!sendEncryptedControl(connection, bridgeSocket,
                         phoneSocket, frame.channel, response,
                         stopRequested)) {
                     return false;
                 }
                 logTls("AV setup response sent channel=" +
-                    std::to_string(frame.channel));
+                    std::to_string(frame.channel) + " max_unacked=" +
+                    std::to_string(maxUnacked));
 
                 if (frame.channel == kVideoChannel) {
                     // VideoFocusIndication { focus_mode: FOCUSED }.
@@ -767,18 +893,51 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 logTls("microphone open request acknowledged");
             } else if (frame.channel == kVideoChannel &&
                 (messageId == 0x0000 || messageId == 0x0001)) {
+                const auto packetAt = std::chrono::steady_clock::now();
                 ++videoPackets;
+                ++videoWindowPackets;
+                videoWindowBytes += messageSize;
+                if (lastVideoPacketAt.time_since_epoch().count() != 0) {
+                    const auto gapMicros = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            packetAt - lastVideoPacketAt).count());
+                    videoGapMicros += gapMicros;
+                    videoGapMaximumMicros = std::max(
+                        videoGapMaximumMicros, gapMicros);
+                }
+                lastVideoPacketAt = packetAt;
                 const std::size_t mediaOffset =
                     messageId == 0x0000 ? 10 : 2;
+                if (messageId == 0x0000 && messageSize >= 10) {
+                    std::uint64_t pts = 0;
+                    for (std::size_t index = 2; index < 10; ++index) {
+                        pts = (pts << 8) | messageBytes[index];
+                    }
+                    if (lastVideoPts != 0 && pts >= lastVideoPts) {
+                        const auto delta = pts - lastVideoPts;
+                        videoPtsDeltaMicros += delta;
+                        videoPtsDeltaMaximumMicros = std::max(
+                            videoPtsDeltaMaximumMicros, delta);
+                        ++videoPtsSamples;
+                    }
+                    lastVideoPts = pts;
+                }
                 // Release the phone immediately; decode runs independently.
                 const std::vector<std::uint8_t> ack{
                     0x80, 0x04, 0x08,
                     mediaSessions[kVideoChannel], 0x10, 0x01};
+                const auto ackStartedAt = std::chrono::steady_clock::now();
                 if (!sendEncryptedControl(connection, bridgeSocket,
                         phoneSocket, frame.channel, ack,
                         stopRequested)) {
                     return false;
                 }
+                const auto ackMicros = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - ackStartedAt).count());
+                videoAckMicros += ackMicros;
+                videoAckMaximumMicros = std::max(
+                    videoAckMaximumMicros, ackMicros);
                 if (messageSize > mediaOffset && videoDecoder.available()) {
                     if (!videoDecoder.enqueue(messageBytes + mediaOffset,
                             messageSize - mediaOffset)) {
@@ -786,32 +945,67 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         return false;
                     }
                 }
-                if (videoPackets == 1 || videoPackets % 60 == 0) {
+                const auto metricsAt = std::chrono::steady_clock::now();
+                if (metricsAt - videoWindowStartedAt >=
+                    std::chrono::seconds(2)) {
                     const double elapsedSeconds =
                         std::chrono::duration<double>(
-                            std::chrono::steady_clock::now() -
-                            videoStartedAt)
+                            metricsAt - videoWindowStartedAt)
                             .count();
                     const auto [decodedPackets, totalDecodeMicros,
-                        queueHighWater] =
+                        queueHighWater, totalQueueWaitMicros,
+                        maximumQueueWaitMicros] =
                         videoDecoder.metrics();
                     const double receiveFps = elapsedSeconds > 0.0
-                        ? static_cast<double>(videoPackets) / elapsedSeconds
+                        ? static_cast<double>(videoWindowPackets) / elapsedSeconds
                         : 0.0;
                     const double averageDecodeMs = decodedPackets > 0
                         ? static_cast<double>(totalDecodeMicros) /
                             static_cast<double>(decodedPackets) / 1000.0
                         : 0.0;
-                    logTls("H264 packets received=" +
-                        std::to_string(videoPackets) + " bytes=" +
-                        std::to_string(messageSize - 2) +
+                    const auto gapSamples = videoWindowPackets > 1
+                        ? videoWindowPackets - 1 : 0;
+                    logTls("H264 window packets=" +
+                        std::to_string(videoWindowPackets) + " bytes=" +
+                        std::to_string(videoWindowBytes) +
                         " receive_fps=" + std::to_string(receiveFps) +
+                        " gap_avg_ms=" + std::to_string(gapSamples > 0
+                            ? static_cast<double>(videoGapMicros) /
+                                gapSamples / 1000.0 : 0.0) +
+                        " gap_max_ms=" + std::to_string(
+                            static_cast<double>(videoGapMaximumMicros) / 1000.0) +
+                        " pts_avg_ms=" + std::to_string(videoPtsSamples > 0
+                            ? static_cast<double>(videoPtsDeltaMicros) /
+                                videoPtsSamples / 1000.0 : 0.0) +
+                        " pts_max_ms=" + std::to_string(
+                            static_cast<double>(videoPtsDeltaMaximumMicros) / 1000.0) +
+                        " ack_avg_ms=" + std::to_string(videoWindowPackets > 0
+                            ? static_cast<double>(videoAckMicros) /
+                                videoWindowPackets / 1000.0 : 0.0) +
+                        " ack_max_ms=" + std::to_string(
+                            static_cast<double>(videoAckMaximumMicros) / 1000.0) +
                         " decoded_packets=" +
                         std::to_string(decodedPackets) +
                         " queue_high_water=" +
                         std::to_string(queueHighWater) +
                         " avg_decode_ms=" +
-                        std::to_string(averageDecodeMs));
+                        std::to_string(averageDecodeMs) +
+                        " queue_wait_avg_ms=" +
+                        std::to_string(decodedPackets > 0
+                            ? static_cast<double>(totalQueueWaitMicros) /
+                                decodedPackets / 1000.0 : 0.0) +
+                        " queue_wait_max_ms=" + std::to_string(
+                            static_cast<double>(maximumQueueWaitMicros) / 1000.0));
+                    videoWindowStartedAt = metricsAt;
+                    videoWindowPackets = 0;
+                    videoWindowBytes = 0;
+                    videoGapMicros = 0;
+                    videoGapMaximumMicros = 0;
+                    videoAckMicros = 0;
+                    videoAckMaximumMicros = 0;
+                    videoPtsDeltaMicros = 0;
+                    videoPtsDeltaMaximumMicros = 0;
+                    videoPtsSamples = 0;
                 }
             } else if (frame.channel >= kNavigationAudioChannel &&
                 frame.channel <= kMediaAudioChannel &&
@@ -1019,13 +1213,18 @@ AndroidAutoError performTlsHandshake(int phoneSocket,
                 break;
             }
             if (handshakeFinished && !handshakeSucceeded) {
+                outcome = AndroidAutoError::TlsHandshakeFailed;
                 bridgeFailed = true;
+                break;
             }
         }
 
         if (outcome != AndroidAutoError::None) {
-            outcome = stopRequested ? AndroidAutoError::ConnectionClosed
-                                    : AndroidAutoError::ConnectionTimeout;
+            if (stopRequested) {
+                outcome = AndroidAutoError::ConnectionClosed;
+            } else if (outcome != AndroidAutoError::TlsHandshakeFailed) {
+                outcome = AndroidAutoError::ConnectionTimeout;
+            }
             ::shutdown(bridgeSocket, SHUT_RDWR);
         }
         if (handshakeThread.joinable()) handshakeThread.join();
@@ -1109,6 +1308,14 @@ int connectSocket(std::string_view address, std::uint16_t port,
         ::close(socketFd);
         return -1;
     }
+    const int enabled = 1;
+    const int socketBufferBytes = 1024 * 1024;
+    ::setsockopt(socketFd, IPPROTO_TCP, TCP_NODELAY,
+        &enabled, sizeof(enabled));
+    ::setsockopt(socketFd, SOL_SOCKET, SO_RCVBUF,
+        &socketBufferBytes, sizeof(socketBufferBytes));
+    ::setsockopt(socketFd, SOL_SOCKET, SO_SNDBUF,
+        &socketBufferBytes, sizeof(socketBufferBytes));
     return socketFd;
 }
 
@@ -1184,7 +1391,7 @@ Result<void, AndroidAutoError> SwitchAndroidAutoHost::sendTouch(
     } else {
         pendingTouches_.push_back(event);
     }
-    constexpr std::size_t kMaxPendingTouches = 16;
+    constexpr std::size_t kMaxPendingTouches = 32;
     while (pendingTouches_.size() > kMaxPendingTouches) {
         auto move = std::find_if(pendingTouches_.begin(),
             pendingTouches_.end(), [](const auto& queued) {
@@ -1335,7 +1542,13 @@ void SwitchAndroidAutoHost::run() {
                 session_.transportDisconnected(tlsResult);
             }
             publish();
-            if (waitForStop(kSecurityFailureDelay)) return;
+            const bool securityFailure =
+                tlsResult == AndroidAutoError::TlsHandshakeFailed ||
+                tlsResult == AndroidAutoError::ProtocolMismatch ||
+                tlsResult == AndroidAutoError::NegotiationRejected;
+            if (waitForStop(securityFailure
+                    ? kSecurityFailureDelay
+                    : kReconnectDelay)) return;
             continue;
         }
 

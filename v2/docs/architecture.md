@@ -48,6 +48,10 @@ Decoded surfaces should remain in hardware-compatible YUV/NV12 memory through
 presentation. CPU readback and per-frame RGBA conversion are forbidden in the
 production path.
 
+The presenter uses a three-image swapchain. This absorbs vblank timing jitter
+without buffering compressed video or copying decoded NV12 surfaces through
+the CPU.
+
 ## Performance budget at 720p60
 
 - Frame interval: 16.67 ms.
@@ -58,4 +62,3 @@ production path.
 
 Metrics must include receive FPS, decode latency percentiles, presentation
 latency, queue depth, dropped presentations, keyframe recovery and touch RTT.
-

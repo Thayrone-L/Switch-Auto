@@ -15,3 +15,9 @@ layers and must not compromise the projection pipeline.
 
 See [architecture](docs/architecture.md) and [milestones](docs/milestones.md).
 
+## Android companion V2
+
+The Android application in `apps/android-companion` is an independent,
+projection-only companion. It owns the foreground Android Auto relay on port
+5288, exposes session diagnostics and deliberately excludes the V1 widget,
+MapLibre, location and media stacks.

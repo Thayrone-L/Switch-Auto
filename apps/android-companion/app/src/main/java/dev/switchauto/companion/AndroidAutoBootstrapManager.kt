@@ -112,7 +112,9 @@ class AndroidAutoBootstrapManager(
             diagnostic("relay[$session] accepted peer=$remote")
             projectionSessions.incrementAndGet()
             try {
+                configureStreamingSocket(external)
                 Socket().use { androidAuto ->
+                    configureStreamingSocket(androidAuto)
                     androidAuto.connect(InetSocketAddress(
                         LOOPBACK_ADDRESS, HEAD_UNIT_SERVER_PORT),
                         CONNECT_TIMEOUT_MS)
@@ -145,7 +147,7 @@ class AndroidAutoBootstrapManager(
     ) {
         var total = 0L
         val preview = ArrayList<Byte>(32)
-        val buffer = ByteArray(8192)
+        val buffer = ByteArray(RELAY_BUFFER_BYTES)
         try {
             while (true) {
                 val count = input.read(buffer)
@@ -154,7 +156,6 @@ class AndroidAutoBootstrapManager(
                 val previewCount = minOf(count, 32 - preview.size)
                 repeat(previewCount) { preview.add(buffer[it]) }
                 output.write(buffer, 0, count)
-                output.flush()
                 total += count
             }
             diagnostic("relay[$session] $direction eof bytes=$total first=${hex(preview)}")
@@ -169,6 +170,13 @@ class AndroidAutoBootstrapManager(
         if (bytes.isEmpty()) "-" else bytes.joinToString("") {
             "%02x".format(it.toInt() and 0xff)
         }
+
+    private fun configureStreamingSocket(socket: Socket) {
+        socket.tcpNoDelay = true
+        socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+        socket.sendBufferSize = SOCKET_BUFFER_BYTES
+        socket.keepAlive = true
+    }
 
     private fun diagnostic(message: String) {
         Log.i(LOG_TAG, message)
@@ -195,6 +203,8 @@ class AndroidAutoBootstrapManager(
         private const val LOOPBACK_ADDRESS = "127.0.0.1"
         private const val CONNECT_TIMEOUT_MS = 2_000
         private const val ACCEPT_TIMEOUT_MS = 1_000
+        private const val RELAY_BUFFER_BYTES = 64 * 1024
+        private const val SOCKET_BUFFER_BYTES = 1024 * 1024
         private const val ANDROID_AUTO_PACKAGE =
             "com.google.android.projection.gearhead"
         private const val ANDROID_AUTO_SETTINGS_ACTION =

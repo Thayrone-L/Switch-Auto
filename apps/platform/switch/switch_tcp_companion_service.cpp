@@ -14,7 +14,18 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef SWITCH_AUTO_V2_PIPELINE
+namespace brls {
+struct Logger {
+    template <typename... Arguments>
+    static void info(const char*, Arguments&&...) {}
+    template <typename... Arguments>
+    static void error(const char*, Arguments&&...) {}
+};
+}  // namespace brls
+#else
 #include <borealis.hpp>
+#endif
 #include <switch.h>
 
 #include "switch_auto/widget_layout.hpp"
