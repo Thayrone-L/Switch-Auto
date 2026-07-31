@@ -20,6 +20,7 @@
 #include <iterator>
 #include <sstream>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -38,6 +39,8 @@ constexpr std::uint8_t kMediaAudioChannel = 6;
 constexpr std::uint8_t kMicrophoneChannel = 7;
 constexpr std::uint32_t kProjectionWidth = 1280;
 constexpr std::uint32_t kProjectionHeight = 720;
+constexpr std::uint8_t kNightModeSensorType = 10;
+constexpr std::uint8_t kDrivingStatusSensorType = 13;
 
 constexpr auto kConnectTimeout = std::chrono::seconds(5);
 constexpr auto kPollInterval = std::chrono::milliseconds(100);
@@ -64,21 +67,26 @@ void logTls(std::string_view message) {
     }
 }
 
+std::vector<std::uint8_t> makeInitialSensorEvent(
+    const std::uint8_t sensorType) {
+    // SensorEventIndication (0x8003) contains repeated sensor records.
+    // Both initial values are intentionally permissive/static: daytime and
+    // unrestricted input. Dynamic vehicle state can replace these later.
+    if (sensorType == kNightModeSensorType) {
+        // night_mode (field 10) -> NightMode { is_night: false }.
+        return {0x80, 0x03, 0x52, 0x02, 0x08, 0x00};
+    }
+    if (sensorType == kDrivingStatusSensorType) {
+        // driving_status (field 13) -> DrivingStatus { status: UNRESTRICTED }.
+        return {0x80, 0x03, 0x6a, 0x02, 0x08, 0x00};
+    }
+    return {};
+}
+
 std::string resultText(::Result result) {
     std::ostringstream text;
     text << "0x" << std::hex << static_cast<unsigned long>(result);
     return text.str();
-}
-
-std::string hexText(const std::vector<std::uint8_t>& bytes) {
-    constexpr char digits[] = "0123456789ABCDEF";
-    std::string output;
-    output.reserve(bytes.size() * 2);
-    for (const auto byte : bytes) {
-        output.push_back(digits[byte >> 4]);
-        output.push_back(digits[byte & 0x0f]);
-    }
-    return output;
 }
 
 bool readCredential(
@@ -285,10 +293,10 @@ std::vector<std::uint8_t> makeServiceDiscoveryResponsePayload() {
     appendProtoVarint(sensorChannel, 1, 1);
     appendProtoBytes(sensorChannel, 2, sensorSource);
 
-    // Channel 2: H.264 video sink, 1280x720 at 30 fps.
+    // Channel 2: H.264 video sink, 1280x720 at a stable 30 fps.
     std::vector<std::uint8_t> videoConfiguration;
     appendProtoVarint(videoConfiguration, 1, 2);  // 1280x720
-    appendProtoVarint(videoConfiguration, 2, 2);  // 30 fps
+    appendProtoVarint(videoConfiguration, 2, 1);  // VideoFPS::_30
     appendProtoVarint(videoConfiguration, 5, 160);
     appendProtoVarint(videoConfiguration, 6, 1);  // One extra decoder frame
 
@@ -393,17 +401,20 @@ bool sendEncryptedControl(SslConnection& connection, int bridgeSocket,
     }
 
     std::vector<std::uint8_t> ciphertext;
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-    while (std::chrono::steady_clock::now() < deadline) {
+    // sslConnectionWrite emits the complete TLS record into the local bridge.
+    // Wait only for its first bytes, then drain everything already available.
+    // The old 10 ms "maybe more data" poll ran once per video ACK and consumed
+    // most of the transport thread at 60 fps, starving touch messages.
+    while (true) {
         pollfd descriptor{bridgeSocket, POLLIN, 0};
         const int result = ::poll(&descriptor, 1,
-            ciphertext.empty() ? 100 : 10);
+            ciphertext.empty() ? 100 : 0);
         if (result < 0 && errno == EINTR) continue;
         if (result <= 0 || !(descriptor.revents & POLLIN)) break;
         std::uint8_t buffer[16384];
         const ssize_t received =
-            ::recv(bridgeSocket, buffer, sizeof(buffer), 0);
+            ::recv(bridgeSocket, buffer, sizeof(buffer), MSG_DONTWAIT);
+        if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
         if (received <= 0) return false;
         ciphertext.insert(
             ciphertext.end(), buffer, buffer + received);
@@ -441,37 +452,37 @@ public:
         return decoder_.available();
     }
 
-    void enqueue(const std::uint8_t* data, std::size_t size) {
-        if (!available() || !data || size == 0) return;
+    bool enqueue(const std::uint8_t* data, std::size_t size) {
+        if (!available() || !data || size == 0) return false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (packets_.size() >= 24) {
-                packets_.pop_front();
+            // Never discard compressed H.264 reference data. A pathological
+            // backlog is safer to recover by reconnecting than by displaying a
+            // corrupted stream until the next keyframe.
+            if (packets_.size() >= 256) return false;
+            std::vector<std::uint8_t> packet;
+            if (!recycledPackets_.empty()) {
+                packet = std::move(recycledPackets_.back());
+                recycledPackets_.pop_back();
             }
-            packets_.emplace_back(data, data + size);
+            packet.assign(data, data + size);
+            packets_.push_back(std::move(packet));
+            queueHighWater_ = std::max(queueHighWater_, packets_.size());
         }
         ready_.notify_one();
+        return true;
     }
 
-    bool waitForPipelineSlot(const std::atomic<bool>& stopRequested) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return completed_.wait_for(lock, std::chrono::milliseconds(500),
-            [this, &stopRequested]() {
-                const std::size_t inFlight =
-                    packets_.size() + (busy_ ? 1U : 0U);
-                return stopRequested || inFlight <= 1;
-            });
-    }
-
-    std::pair<std::uint64_t, std::uint64_t> metrics() const {
+    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> metrics() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        return {decodedPackets_, totalDecodeMicros_};
+        return {decodedPackets_, totalDecodeMicros_, queueHighWater_};
     }
 
 private:
     void run() {
         while (true) {
             std::vector<std::uint8_t> packet;
+            bool present = false;
             {
                 std::unique_lock<std::mutex> lock(mutex_);
                 ready_.wait(lock,
@@ -480,9 +491,14 @@ private:
                 packet = std::move(packets_.front());
                 packets_.pop_front();
                 busy_ = true;
+                const auto now = std::chrono::steady_clock::now();
+                present = packets_.empty() ||
+                    now - lastPresentation_ >=
+                        std::chrono::milliseconds(33);
+                if (present) lastPresentation_ = now;
             }
             const auto decodeStarted = std::chrono::steady_clock::now();
-            decoder_.decode(packet.data(), packet.size());
+            decoder_.decode(packet.data(), packet.size(), present);
             const auto decodeMicros =
                 std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - decodeStarted)
@@ -493,6 +509,10 @@ private:
                 ++decodedPackets_;
                 totalDecodeMicros_ +=
                     static_cast<std::uint64_t>(decodeMicros);
+                packet.clear();
+                if (recycledPackets_.size() < 2) {
+                    recycledPackets_.push_back(std::move(packet));
+                }
             }
             completed_.notify_all();
         }
@@ -503,10 +523,13 @@ private:
     std::condition_variable ready_;
     std::condition_variable completed_;
     std::deque<std::vector<std::uint8_t>> packets_;
+    std::vector<std::vector<std::uint8_t>> recycledPackets_;
     bool busy_ = false;
     bool stopping_ = false;
     std::uint64_t decodedPackets_ = 0;
     std::uint64_t totalDecodeMicros_ = 0;
+    std::uint64_t queueHighWater_ = 0;
+    std::chrono::steady_clock::time_point lastPresentation_{};
     std::thread worker_;
 };
 
@@ -527,22 +550,17 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
     }
     auto drainTouches = [&]() {
         if (!inputBound) return true;
-        while (touchSource) {
+        // Keep input responsive without starving 60 fps video reads. A burst
+        // of taps is spread over consecutive transport iterations.
+        constexpr std::size_t kMaxTouchesPerIteration = 4;
+        for (std::size_t sent = 0;
+             sent < kMaxTouchesPerIteration && touchSource; ++sent) {
             auto touch = touchSource();
             if (!touch) return true;
             const auto message = makeTouchEventMessage(*touch);
             if (!sendEncryptedControl(connection, bridgeSocket, phoneSocket,
                     kInputChannel, message, stopRequested)) {
                 return false;
-            }
-            if (touch->action != AndroidAutoTouchAction::Move) {
-                logTls("touch sent action=" +
-                    std::to_string(static_cast<int>(touch->action)) +
-                    " x=" + std::to_string(touch->normalizedX) +
-                    " y=" + std::to_string(touch->normalizedY) +
-                    " timestamp_us=" +
-                    std::to_string(touch->timestampMicros) +
-                    " payload=" + hexText(message));
             }
         }
         return true;
@@ -598,23 +616,22 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 continue;
             }
 
-            std::vector<std::uint8_t> completeMessage;
+            std::vector<std::uint8_t> assembledMessage;
+            const std::uint8_t* messageBytes = plaintextBuffer;
+            std::size_t messageSize = plaintextSize;
             if (frame.type == AndroidAutoFrameType::Last) {
                 assembly.insert(
                     assembly.end(), plaintextBuffer,
                     plaintextBuffer + plaintextSize);
-                completeMessage = std::move(assembly);
+                assembledMessage = std::move(assembly);
                 assembly.clear();
-            } else {
-                completeMessage.assign(
-                    plaintextBuffer, plaintextBuffer + plaintextSize);
+                messageBytes = assembledMessage.data();
+                messageSize = assembledMessage.size();
             }
-            if (completeMessage.size() < 2) {
+            if (messageSize < 2) {
                 logTls("decrypted message too short");
                 return false;
             }
-            const auto* messageBytes = completeMessage.data();
-            const std::size_t messageSize = completeMessage.size();
             const std::uint16_t messageId =
                 (static_cast<std::uint16_t>(messageBytes[0]) << 8) |
                 messageBytes[1];
@@ -622,7 +639,7 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
             // opens and flushes the SD-card file synchronously, which causes
             // visible frame stalls and can starve the projection transport.
             // Video/audio already publish compact aggregate metrics below.
-            if (messageId != 0 && messageId != 1) {
+            if (messageId != 0 && messageId != 1 && messageId != 18) {
                 logTls("received encrypted control message=" +
                     std::to_string(messageId) + " channel=" +
                     std::to_string(frame.channel));
@@ -654,6 +671,12 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                     std::to_string(frame.channel));
             } else if (frame.channel == kSensorChannel &&
                 messageId == 0x8001) {
+                // SensorStartRequest { sensor_type: ... }. The two sensors we
+                // advertise currently fit in one-byte protobuf varints.
+                const std::uint8_t sensorType =
+                    messageSize >= 4 && messageBytes[2] == 0x08
+                    ? messageBytes[3]
+                    : 0;
                 // SensorStartResponse { status: OK }.
                 const std::vector<std::uint8_t> response{
                     0x80, 0x02, 0x08, 0x00};
@@ -662,7 +685,17 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         stopRequested)) {
                     return false;
                 }
-                logTls("sensor start response sent");
+                const auto initialEvent = makeInitialSensorEvent(sensorType);
+                if (!initialEvent.empty() &&
+                    !sendEncryptedControl(connection, bridgeSocket,
+                        phoneSocket, frame.channel, initialEvent,
+                        stopRequested)) {
+                    return false;
+                }
+                logTls("sensor start response sent type=" +
+                    std::to_string(sensorType) +
+                    (initialEvent.empty() ? " event=unsupported"
+                                          : " event=initial"));
             } else if (frame.channel == kInputChannel &&
                 messageId == 0x8002) {
                 // BindingResponse { status: OK }.
@@ -737,18 +770,7 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 ++videoPackets;
                 const std::size_t mediaOffset =
                     messageId == 0x0000 ? 10 : 2;
-                if (messageSize > mediaOffset && videoDecoder.available()) {
-                    videoDecoder.enqueue(messageBytes + mediaOffset,
-                        messageSize - mediaOffset);
-                    // Keep one packet decoding and at most one queued. This
-                    // overlaps Wi-Fi/TLS with decode without recreating the
-                    // long queue that delayed visual touch feedback.
-                    if (!videoDecoder.waitForPipelineSlot(stopRequested)) {
-                        logTls("video decoder backpressure timeout");
-                        return false;
-                    }
-                }
-                // AVMediaAckIndication { session, value: 1 }.
+                // Release the phone immediately; decode runs independently.
                 const std::vector<std::uint8_t> ack{
                     0x80, 0x04, 0x08,
                     mediaSessions[kVideoChannel], 0x10, 0x01};
@@ -757,13 +779,21 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         stopRequested)) {
                     return false;
                 }
+                if (messageSize > mediaOffset && videoDecoder.available()) {
+                    if (!videoDecoder.enqueue(messageBytes + mediaOffset,
+                            messageSize - mediaOffset)) {
+                        logTls("video decoder queue overflow");
+                        return false;
+                    }
+                }
                 if (videoPackets == 1 || videoPackets % 60 == 0) {
                     const double elapsedSeconds =
                         std::chrono::duration<double>(
                             std::chrono::steady_clock::now() -
                             videoStartedAt)
                             .count();
-                    const auto [decodedPackets, totalDecodeMicros] =
+                    const auto [decodedPackets, totalDecodeMicros,
+                        queueHighWater] =
                         videoDecoder.metrics();
                     const double receiveFps = elapsedSeconds > 0.0
                         ? static_cast<double>(videoPackets) / elapsedSeconds
@@ -778,6 +808,8 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         " receive_fps=" + std::to_string(receiveFps) +
                         " decoded_packets=" +
                         std::to_string(decodedPackets) +
+                        " queue_high_water=" +
+                        std::to_string(queueHighWater) +
                         " avg_decode_ms=" +
                         std::to_string(averageDecodeMs));
                 }
@@ -1145,10 +1177,6 @@ Result<void, AndroidAutoError> SwitchAndroidAutoHost::sendTouch(
     std::lock_guard<std::mutex> lock(mutex_);
     const auto validation = session_.validateTouch(event);
     if (!validation) return validation;
-    if (event.action != AndroidAutoTouchAction::Move) {
-        logTls("touch queued action=" +
-            std::to_string(static_cast<int>(event.action)));
-    }
     if (event.action == AndroidAutoTouchAction::Move &&
         !pendingTouches_.empty() &&
         pendingTouches_.back().action == AndroidAutoTouchAction::Move) {
@@ -1156,13 +1184,41 @@ Result<void, AndroidAutoError> SwitchAndroidAutoHost::sendTouch(
     } else {
         pendingTouches_.push_back(event);
     }
-    while (pendingTouches_.size() > 16) {
+    constexpr std::size_t kMaxPendingTouches = 16;
+    while (pendingTouches_.size() > kMaxPendingTouches) {
         auto move = std::find_if(pendingTouches_.begin(),
             pendingTouches_.end(), [](const auto& queued) {
                 return queued.action == AndroidAutoTouchAction::Move;
             });
-        if (move == pendingTouches_.end()) break;
-        pendingTouches_.erase(move);
+        if (move != pendingTouches_.end()) {
+            pendingTouches_.erase(move);
+            continue;
+        }
+
+        // Prefer dropping the oldest complete tap so Down/Up ordering of the
+        // remaining gestures is preserved.
+        bool removedTap = false;
+        for (auto down = pendingTouches_.begin();
+             down != pendingTouches_.end(); ++down) {
+            const auto up = std::next(down);
+            if (up == pendingTouches_.end()) break;
+            if (down->action == AndroidAutoTouchAction::Down &&
+                (up->action == AndroidAutoTouchAction::Up ||
+                 up->action == AndroidAutoTouchAction::Cancel)) {
+                pendingTouches_.erase(down, std::next(up));
+                removedTap = true;
+                break;
+            }
+        }
+        if (!removedTap) break;
+    }
+    if (pendingTouches_.size() > kMaxPendingTouches + 2) {
+        // Defensive recovery for a malformed event sequence. A Cancel is safer
+        // than leaving Android Auto with a pointer permanently pressed.
+        AndroidAutoTouchEvent cancel = event;
+        cancel.action = AndroidAutoTouchAction::Cancel;
+        pendingTouches_.clear();
+        pendingTouches_.push_back(cancel);
     }
     return Result<void, AndroidAutoError>::success();
 }
@@ -1258,7 +1314,7 @@ void SwitchAndroidAutoHost::run() {
             AndroidAutoCapabilities capabilities;
             capabilities.video = {
                 AndroidAutoVideoCodec::H264,
-                kProjectionWidth, kProjectionHeight, 30};
+                kProjectionWidth, kProjectionHeight, 60};
             capabilities.touch = true;
             // Required by Android Auto discovery. PCM is acknowledged and
             // discarded by the transport; the Switch never renders it.

@@ -762,10 +762,20 @@ class MainActivity : Activity() {
 
     private fun runAndroidAutoBootstrapMonitor() {
         var previous: AndroidAutoBootstrapManager.State? = null
+        var projectionWasActive = false
         while (running.get()) {
             val current = androidAutoBootstrap.probe()
             if (current == AndroidAutoBootstrapManager.State.READY) {
                 androidAutoBootstrap.startRelay()
+            }
+            val projectionActive = androidAutoBootstrap.isProjectionActive()
+            if (projectionActive != projectionWasActive) {
+                projectionWasActive = projectionActive
+                if (::gpsWidget.isInitialized) {
+                    gpsWidget.setProjectionActive(projectionActive)
+                }
+                appendLog("Android Auto projection: " +
+                    if (projectionActive) "active" else "inactive")
             }
             if (current != previous) {
                 previous = current

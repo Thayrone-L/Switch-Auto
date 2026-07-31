@@ -46,6 +46,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     @Volatile private var destination: LatLng? = null
     @Volatile private var activeRoute: NavigationRoute? = null
     @Volatile private var routeStatus = "No destination"
+    @Volatile private var projectionActive = false
     private val routeExecutor = Executors.newSingleThreadExecutor()
 
     override fun initialize(context: CompanionWidgetContext) {
@@ -70,6 +71,22 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
     fun isEnabled() = enabled
 
     fun navigationStatus() = routeStatus
+
+    fun setProjectionActive(active: Boolean) {
+        if (projectionActive == active) return
+        projectionActive = active
+        if (active) {
+            rerenderRequested.set(false)
+            synchronized(this) {
+                latestMapFrame = null
+                lastSentMapFrameId = mapFrameId.get()
+            }
+            context.log("Widget $id MapLibre rendering paused for Android Auto")
+        } else {
+            context.log("Widget $id MapLibre fallback resumed")
+            lastLocation?.let { renderMap(it, force = true) }
+        }
+    }
 
     fun submitExternalMapFrame(frame: ByteArray) {
         externalMapStreamActive = true
@@ -205,6 +222,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                 .put("destinationLatitude", destination?.latitude)
                 .put("destinationLongitude", destination?.longitude))
         }
+        if (projectionActive) return null
         val frameId = mapFrameId.get()
         latestMapFrame?.takeIf { frameId != lastSentMapFrameId }?.let { frame ->
             target.put("mapFrame", JSONObject()
@@ -244,7 +262,7 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
         "switch_auto_widget_gps", Context.MODE_PRIVATE)
 
     private fun renderMap(location: Location, force: Boolean = false) {
-        if (externalMapStreamActive) return
+        if (externalMapStreamActive || projectionActive) return
         val now = System.currentTimeMillis()
         if (!force && now - lastSnapshotTime < MAP_SNAPSHOT_INTERVAL_MS) return
         if (!snapshotInProgress.compareAndSet(false, true)) {
@@ -275,6 +293,10 @@ class GpsWidget : BaseCompanionWidget(), LocationListener {
                 }
             activeSnapshotter.setCameraPosition(camera)
             activeSnapshotter.start({ snapshot ->
+                if (projectionActive) {
+                    finishSnapshot()
+                    return@start
+                }
                 val encoded = encodeSnapshot(snapshot)
                 if (encoded != null) {
                     val frameId = synchronized(this@GpsWidget) {

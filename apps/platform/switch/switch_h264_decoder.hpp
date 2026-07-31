@@ -15,7 +15,8 @@ public:
     SwitchH264Decoder& operator=(const SwitchH264Decoder&) = delete;
 
     bool available() const;
-    bool decode(const std::uint8_t* data, std::size_t size);
+    bool decode(
+        const std::uint8_t* data, std::size_t size, bool present = true);
 
 private:
     struct Impl;

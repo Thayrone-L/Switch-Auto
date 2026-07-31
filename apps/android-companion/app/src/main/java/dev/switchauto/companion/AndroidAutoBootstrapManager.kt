@@ -13,6 +13,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -29,11 +30,14 @@ class AndroidAutoBootstrapManager(
     private val state = AtomicReference(State.CHECKING)
     private val trustedAddress = AtomicReference<String?>(null)
     private val relayRunning = AtomicBoolean(false)
+    private val projectionSessions = AtomicInteger(0)
     private val relayExecutor = Executors.newCachedThreadPool()
     private val nextRelaySession = AtomicLong(1)
     @Volatile private var relayServer: ServerSocket? = null
 
     fun state(): State = state.get()
+
+    fun isProjectionActive(): Boolean = projectionSessions.get() > 0
 
     fun setTrustedAddress(address: String) {
         trustedAddress.set(address)
@@ -106,6 +110,7 @@ class AndroidAutoBootstrapManager(
                 return
             }
             diagnostic("relay[$session] accepted peer=$remote")
+            projectionSessions.incrementAndGet()
             try {
                 Socket().use { androidAuto ->
                     androidAuto.connect(InetSocketAddress(
@@ -126,6 +131,7 @@ class AndroidAutoBootstrapManager(
                 diagnostic("relay[$session] failed: ${error.javaClass.simpleName}: ${error.message}")
                 state.set(State.MANUAL_ACTION_REQUIRED)
             } finally {
+                projectionSessions.decrementAndGet()
                 diagnostic("relay[$session] closed")
             }
         }

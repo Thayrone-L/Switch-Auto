@@ -1,5 +1,6 @@
 #include "switch_h264_decoder.hpp"
 
+#include <cstring>
 #include <vector>
 
 extern "C" {
@@ -54,7 +55,7 @@ bool SwitchH264Decoder::available() const {
 }
 
 bool SwitchH264Decoder::decode(
-    const std::uint8_t* data, std::size_t size) {
+    const std::uint8_t* data, std::size_t size, bool present) {
     if (!available() || !data || size == 0 ||
         size > static_cast<std::size_t>(INT_MAX)) {
         return false;
@@ -62,12 +63,11 @@ bool SwitchH264Decoder::decode(
     av_packet_unref(impl_->packet);
     impl_->packet->data = const_cast<std::uint8_t*>(data);
     impl_->packet->size = static_cast<int>(size);
-    const int sendResult =
-        avcodec_send_packet(impl_->context, impl_->packet);
-    if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) return false;
-
     bool produced = false;
-    while (avcodec_receive_frame(impl_->context, impl_->decoded) == 0) {
+    auto drainFrames = [&]() {
+      bool drained = false;
+      while (avcodec_receive_frame(impl_->context, impl_->decoded) == 0) {
+        drained = true;
         const int width = impl_->decoded->width;
         const int height = impl_->decoded->height;
         const auto format =
@@ -84,16 +84,51 @@ bool SwitchH264Decoder::decode(
         }
         if (!impl_->converter || width <= 0 || height <= 0) continue;
 
-        // The decoder must consume every H.264 frame to preserve references,
-        // but color conversion is wasted while the UI still has a frame
-        // waiting for upload. Skip only the expensive YUV -> RGBA conversion.
-        if (!switch_auto::ui::AndroidAutoVideoView::canAcceptFrame()) {
+        // Every compressed frame must be decoded to preserve H.264 references.
+        // When transport has a backlog, consume without presenting old frames
+        // and resume display only when the decoder reaches the live edge.
+        if (!present ||
+            !switch_auto::ui::AndroidAutoVideoView::canAcceptFrame()) {
             produced = true;
             continue;
         }
 
-        std::vector<std::uint8_t> rgba(
-            static_cast<std::size_t>(width) * height * 4);
+        if ((format == AV_PIX_FMT_YUV420P ||
+             format == AV_PIX_FMT_YUVJ420P) &&
+            (width & 1) == 0 && (height & 1) == 0) {
+            auto yuv =
+                switch_auto::ui::AndroidAutoVideoView::acquireYuv420Frame(
+                    width, height);
+            const auto lumaSize =
+                static_cast<std::size_t>(width) * height;
+            const int planeWidths[3]{width, width / 2, width / 2};
+            const int planeHeights[3]{height, height / 2, height / 2};
+            std::size_t outputOffset = 0;
+            for (int plane = 0; plane < 3; ++plane) {
+                for (int row = 0; row < planeHeights[plane]; ++row) {
+                    std::memcpy(
+                        yuv.data.data() + outputOffset,
+                        impl_->decoded->data[plane] +
+                            static_cast<std::ptrdiff_t>(row) *
+                                impl_->decoded->linesize[plane],
+                        static_cast<std::size_t>(planeWidths[plane]));
+                    outputOffset +=
+                        static_cast<std::size_t>(planeWidths[plane]);
+                }
+            }
+            if (outputOffset == lumaSize + lumaSize / 2) {
+                switch_auto::ui::AndroidAutoVideoView::submitYuv420Frame(
+                    std::move(yuv));
+                produced = true;
+                continue;
+            }
+        }
+
+        const auto rgbaSize =
+            static_cast<std::size_t>(width) * height * 4;
+        auto rgba =
+            switch_auto::ui::AndroidAutoVideoView::acquireFrameBuffer(
+                rgbaSize);
         std::uint8_t* outputData[]{rgba.data()};
         int outputStride[]{width * 4};
         sws_scale(impl_->converter, impl_->decoded->data,
@@ -101,7 +136,21 @@ bool SwitchH264Decoder::decode(
         switch_auto::ui::AndroidAutoVideoView::submitFrame(
             width, height, std::move(rgba));
         produced = true;
-    }
+      }
+      return drained;
+    };
+
+    // send_packet may return EAGAIN when decoded frames are still queued. The
+    // packet was not accepted in that case: drain those frames and retry the
+    // exact same packet, otherwise an H.264 reference frame is silently lost.
+    int sendResult = 0;
+    do {
+        sendResult = avcodec_send_packet(impl_->context, impl_->packet);
+        if (sendResult == AVERROR(EAGAIN) && !drainFrames()) return false;
+    } while (sendResult == AVERROR(EAGAIN));
+    if (sendResult < 0) return false;
+
+    drainFrames();
     return produced || sendResult >= 0;
 }
 

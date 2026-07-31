@@ -94,21 +94,22 @@ DashboardView::DashboardView() {
     applyWidgetLayout();
     gpsWidgetBox_->addGestureRecognizer(new brls::PanGestureRecognizer(
         [this](brls::PanGestureStatus status, brls::Sound*) {
-            AndroidAutoTouchAction action = AndroidAutoTouchAction::Up;
             switch (status.state) {
                 case brls::GestureState::UNSURE:
-                    return;
-                case brls::GestureState::START:
-                case brls::GestureState::STAY:
-                    action = AndroidAutoTouchAction::Move;
-                    break;
                 case brls::GestureState::END:
                 case brls::GestureState::FAILED:
                 case brls::GestureState::INTERRUPTED:
-                    action = AndroidAutoTouchAction::Up;
+                    return;
+                case brls::GestureState::START:
+                case brls::GestureState::STAY:
                     break;
             }
-            mapImage_->dispatchTouch(action, status.position);
+            // TapGestureRecognizer already owns Down/Up for the same physical
+            // contact. Pan contributes only intermediate Move events, avoiding
+            // the duplicate Up that could leave Gearhead's gesture state in an
+            // inconsistent sequence.
+            mapImage_->dispatchTouch(
+                AndroidAutoTouchAction::Move, status.position);
         },
         brls::PanAxis::ANY));
     gpsWidgetBox_->addGestureRecognizer(new brls::TapGestureRecognizer(

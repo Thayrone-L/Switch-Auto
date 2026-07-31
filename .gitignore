@@ -51,3 +51,5 @@ obj/
 *.tmp
 *.swp
 *~
+diagnostics/
+.codex-remote-attachments/
