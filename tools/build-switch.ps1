@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('v1', 'v2')]
+    [string]$Generation = 'v1'
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -8,7 +11,12 @@ $devkitProPath = 'C:\devkitPro'
 $makePath = Join-Path $devkitProPath 'msys2\usr\bin\make.exe'
 $virtualDrive = 'S:'
 $buildDirectory = Join-Path $repositoryRoot 'build\borealis-switch'
-$nroOutput = Join-Path $repositoryRoot 'apps\switch-auto\switch-auto.nro'
+$targetName = if ($Generation -eq 'v2') { 'switch-auto-v2.nro' } else { 'switch-auto.nro' }
+$nroOutput = if ($Generation -eq 'v2') {
+    Join-Path $repositoryRoot 'v2\apps\switch\switch-auto-v2.nro'
+} else {
+    Join-Path $repositoryRoot 'apps\switch-auto\switch-auto.nro'
+}
 
 if (-not (Test-Path -LiteralPath $makePath)) {
     throw "devkitPro make not found at $makePath"
@@ -46,10 +54,10 @@ try {
         '-DCMAKE_MAKE_PROGRAM=/usr/bin/make.exe'
     if ($LASTEXITCODE -ne 0) { throw "Switch configuration failed." }
 
-    & cmake --build '/s/build/borealis-switch' --target switch-auto.nro --parallel -- -s
+    & cmake --build '/s/build/borealis-switch' --target $targetName --parallel -- -s
     if ($LASTEXITCODE -ne 0) { throw "Switch build failed." }
 
-    Copy-Item -LiteralPath (Join-Path $buildDirectory 'switch-auto.nro') -Destination $nroOutput -Force
+    Copy-Item -LiteralPath (Join-Path $buildDirectory $targetName) -Destination $nroOutput -Force
     Write-Output $nroOutput
 }
 finally {

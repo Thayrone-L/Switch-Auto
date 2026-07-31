@@ -61,6 +61,32 @@ if(PLATFORM_SWITCH)
         libavcodec libavutil libswscale)
     target_include_directories(switch-auto PRIVATE apps/platform/switch)
     target_link_libraries(switch-auto PRIVATE PkgConfig::SWITCH_FFMPEG)
+
+    set(SWITCH_AUTO_V2_SOURCES
+        v2/apps/switch/source/main.cpp
+        v2/platform/switch/source/nvtegra_probe.cpp
+    )
+    program_target(switch-auto-v2 "${SWITCH_AUTO_V2_SOURCES}")
+    set_target_properties(switch-auto-v2 PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+    target_include_directories(switch-auto-v2 PRIVATE
+        v2/core/include
+        v2/platform/switch/include
+    )
+    target_compile_options(switch-auto-v2 PRIVATE
+        -Wall
+        -Wextra
+        -ffunction-sections
+        -fdata-sections
+        ${BRLS_PLATFORM_OPTION}
+    )
+    target_link_libraries(switch-auto-v2 PRIVATE
+        borealis
+        ${APP_PLATFORM_LIB}
+        PkgConfig::SWITCH_FFMPEG
+    )
 endif()
 target_compile_options(switch-auto PRIVATE
     -Wall
@@ -98,4 +124,15 @@ if(PLATFORM_SWITCH)
                 --romfsdir=${CMAKE_BINARY_DIR}/resources
         COMMENT "Packaging Switch Auto NRO"
     )
+
+    add_custom_target(switch-auto-v2.nro DEPENDS switch-auto-v2
+        COMMAND ${NX_NACPTOOL_EXE} --create "Switch Auto V2" "${PROJECT_AUTHOR}"
+                "${PROJECT_VERSION}" switch-auto-v2.nacp --titleid=${PROJECT_TITLEID}
+        COMMAND ${NX_ELF2NRO_EXE} switch-auto-v2.elf switch-auto-v2.nro
+                --icon=${PROJECT_ICON}
+                --nacp=switch-auto-v2.nacp
+                --romfsdir=${CMAKE_BINARY_DIR}/resources
+        COMMENT "Packaging Switch Auto V2 NVDEC probe"
+    )
+    add_dependencies(switch-auto-v2 switch-auto-resources)
 endif()
