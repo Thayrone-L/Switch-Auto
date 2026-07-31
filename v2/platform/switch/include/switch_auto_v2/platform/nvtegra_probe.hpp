@@ -14,6 +14,6 @@ struct NvTegraProbeResult {
 };
 
 NvTegraProbeResult probeNvTegra();
+void shutdownNvTegra();
 
 }  // namespace switch_auto::v2::platform
-

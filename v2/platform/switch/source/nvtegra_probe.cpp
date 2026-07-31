@@ -11,8 +11,24 @@ extern "C" {
 
 namespace switch_auto::v2::platform {
 
+namespace {
+
+// NVTEGRA and the Borealis OpenGL backend share NVIDIA services. Keep the
+// hardware device alive for the process lifetime; releasing it while the UI is
+// active tears down resources still required by the graphics context. The V2
+// decoder will take ownership of this retained device in the next milestone.
+AVBufferRef* retainedDevice = nullptr;
+
+}  // namespace
+
 NvTegraProbeResult probeNvTegra() {
     NvTegraProbeResult result;
+    if (retainedDevice) {
+        result.available = true;
+        result.detail = "NVTEGRA hardware device already initialized";
+        return result;
+    }
+
     AVBufferRef* device = nullptr;
     const int createResult = av_hwdevice_ctx_create(
         &device, AV_HWDEVICE_TYPE_NVTEGRA, nullptr, nullptr, 0);
@@ -40,9 +56,12 @@ NvTegraProbeResult probeNvTegra() {
             nvtegra->vic_version, &result.vicMajor, &result.vicMinor);
     }
     result.detail = "NVTEGRA hardware device initialized";
-    av_buffer_unref(&device);
+    retainedDevice = device;
     return result;
 }
 
-}  // namespace switch_auto::v2::platform
+void shutdownNvTegra() {
+    av_buffer_unref(&retainedDevice);
+}
 
+}  // namespace switch_auto::v2::platform

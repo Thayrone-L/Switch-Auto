@@ -65,6 +65,7 @@ if(PLATFORM_SWITCH)
     set(SWITCH_AUTO_V2_SOURCES
         v2/apps/switch/source/main.cpp
         v2/platform/switch/source/nvtegra_probe.cpp
+        extern/borealis/library/lib/platforms/switch/switch_wrapper.c
     )
     program_target(switch-auto-v2 "${SWITCH_AUTO_V2_SOURCES}")
     set_target_properties(switch-auto-v2 PROPERTIES
@@ -75,6 +76,7 @@ if(PLATFORM_SWITCH)
         v2/core/include
         v2/platform/switch/include
     )
+    target_compile_definitions(switch-auto-v2 PRIVATE __SWITCH__)
     target_compile_options(switch-auto-v2 PRIVATE
         -Wall
         -Wextra
@@ -83,8 +85,8 @@ if(PLATFORM_SWITCH)
         ${BRLS_PLATFORM_OPTION}
     )
     target_link_libraries(switch-auto-v2 PRIVATE
-        borealis
-        ${APP_PLATFORM_LIB}
+        deko3d
+        nx
         PkgConfig::SWITCH_FFMPEG
     )
 endif()
@@ -131,8 +133,6 @@ if(PLATFORM_SWITCH)
         COMMAND ${NX_ELF2NRO_EXE} switch-auto-v2.elf switch-auto-v2.nro
                 --icon=${PROJECT_ICON}
                 --nacp=switch-auto-v2.nacp
-                --romfsdir=${CMAKE_BINARY_DIR}/resources
         COMMENT "Packaging Switch Auto V2 NVDEC probe"
     )
-    add_dependencies(switch-auto-v2 switch-auto-resources)
 endif()
