@@ -300,11 +300,11 @@ std::vector<std::uint8_t> makeServiceDiscoveryResponsePayload() {
     appendProtoVarint(sensorChannel, 1, 1);
     appendProtoBytes(sensorChannel, 2, sensorSource);
 
-    // Channel 2: H.264 video sink, 1280x720 at 60 fps.
+    // Channel 2: H.264 video sink, 1280x720 using the Stable 30 profile.
     std::vector<std::uint8_t> videoConfiguration;
     appendProtoVarint(videoConfiguration, 1, 2);  // 1280x720
     // Android Auto VideoFPS enum: NONE = 0, _30 = 1, _60 = 2.
-    appendProtoVarint(videoConfiguration, 2, 2);  // VideoFPS::_60
+    appendProtoVarint(videoConfiguration, 2, 1);  // VideoFPS::_30
     appendProtoVarint(videoConfiguration, 5, 160);
     appendProtoVarint(videoConfiguration, 6, 1);  // One extra decoder frame
 
@@ -409,16 +409,44 @@ bool sendEncryptedControl(SslConnection& connection, int bridgeSocket,
     }
 
     std::vector<std::uint8_t> ciphertext;
-    // sslConnectionWrite emits the complete TLS record into the local bridge.
-    // Wait only for its first bytes, then drain everything already available.
-    // The old 10 ms "maybe more data" poll ran once per video ACK and consumed
-    // most of the transport thread at 60 fps, starving touch messages.
+    // sslConnectionWrite normally emits immediately, but Horizon can schedule
+    // the socketpair a little later under network/input load. Once SSL accepts
+    // plaintext its record must not be abandoned: wait for the first bytes,
+    // then drain only what is already available. This wait is off the UI and
+    // decoder threads and is normally below one millisecond.
+    const auto ciphertextDeadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(500);
     while (true) {
         pollfd descriptor{bridgeSocket, POLLIN, 0};
-        const int result = ::poll(&descriptor, 1,
-            ciphertext.empty() ? 100 : 0);
+        int timeoutMs = 0;
+        if (ciphertext.empty()) {
+            const auto remaining = std::chrono::duration_cast<
+                std::chrono::milliseconds>(ciphertextDeadline -
+                    std::chrono::steady_clock::now()).count();
+            if (remaining <= 0) {
+                logTls("encrypted record unavailable channel=" +
+                    std::to_string(channel));
+                return false;
+            }
+            timeoutMs = static_cast<int>(std::min<std::int64_t>(remaining, 50));
+        }
+        const int result = ::poll(&descriptor, 1, timeoutMs);
         if (result < 0 && errno == EINTR) continue;
-        if (result <= 0 || !(descriptor.revents & POLLIN)) break;
+        if (result < 0) {
+            logTls("encrypted bridge poll failed channel=" +
+                std::to_string(channel) + " errno=" + std::to_string(errno));
+            return false;
+        }
+        if (result == 0) {
+            if (ciphertext.empty()) continue;
+            break;
+        }
+        if (!(descriptor.revents & POLLIN)) {
+            logTls("encrypted bridge closed channel=" +
+                std::to_string(channel) + " revents=" +
+                std::to_string(descriptor.revents));
+            return false;
+        }
         std::uint8_t buffer[16384];
         const ssize_t received =
             ::recv(bridgeSocket, buffer, sizeof(buffer), MSG_DONTWAIT);
@@ -427,7 +455,10 @@ bool sendEncryptedControl(SslConnection& connection, int bridgeSocket,
         ciphertext.insert(
             ciphertext.end(), buffer, buffer + received);
     }
-    if (ciphertext.empty()) return false;
+    if (ciphertext.empty()) {
+        logTls("encrypted record empty channel=" + std::to_string(channel));
+        return false;
+    }
 
     AndroidAutoFrame frame;
     frame.channel = channel;
@@ -457,7 +488,7 @@ public:
     AsyncVideoDecoder()
 #ifdef SWITCH_AUTO_V2_PIPELINE
         : decoderReady_(decoder_.initialize(
-              kProjectionWidth, kProjectionHeight, 60)),
+              kProjectionWidth, kProjectionHeight, 30)),
           worker_([this]() { run(); }) {}
 #else
         : worker_([this]() { run(); }) {}
@@ -617,20 +648,6 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
     AndroidAutoFrameCodec codec;
     bool discoverySent = false;
     std::array<std::uint8_t, 256> mediaSessions{};
-    std::array<std::uint64_t, 256> mediaPacketCounts{};
-    std::uint64_t videoPackets = 0;
-    auto videoWindowStartedAt = std::chrono::steady_clock::now();
-    auto lastVideoPacketAt = std::chrono::steady_clock::time_point{};
-    std::uint64_t videoWindowPackets = 0;
-    std::uint64_t videoWindowBytes = 0;
-    std::uint64_t videoGapMicros = 0;
-    std::uint64_t videoGapMaximumMicros = 0;
-    std::uint64_t videoAckMicros = 0;
-    std::uint64_t videoAckMaximumMicros = 0;
-    std::uint64_t lastVideoPts = 0;
-    std::uint64_t videoPtsDeltaMicros = 0;
-    std::uint64_t videoPtsDeltaMaximumMicros = 0;
-    std::uint64_t videoPtsSamples = 0;
     bool inputBound = false;
     std::array<std::vector<std::uint8_t>, 256> fragmentedPlaintext;
     AsyncVideoDecoder videoDecoder;
@@ -639,9 +656,10 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
     }
     auto drainTouches = [&]() {
         if (!inputBound) return true;
-        // Keep input responsive without starving 60 fps video reads. A burst
-        // of taps is spread over consecutive transport iterations.
-        constexpr std::size_t kMaxTouchesPerIteration = 2;
+        // Mirror AASDK's serialized messenger: protocol responses are sent
+        // first, followed by at most one queued input report before the next
+        // inbound message. This keeps one TLS writer without starving input.
+        constexpr std::size_t kMaxTouchesPerIteration = 1;
         for (std::size_t sent = 0;
              sent < kMaxTouchesPerIteration && touchSource; ++sent) {
             auto touch = touchSource();
@@ -655,10 +673,6 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
         return true;
     };
     while (!stopRequested) {
-        if (!drainTouches()) {
-            logTls("session ended: touch send failed before poll");
-            return false;
-        }
         pollfd descriptor{
             phoneSocket, POLLIN | POLLHUP | POLLERR, 0};
         const int pollResult = ::poll(
@@ -673,7 +687,13 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 std::to_string(errno));
             return false;
         }
-        if (!(descriptor.revents & POLLIN)) continue;
+        if (!(descriptor.revents & POLLIN)) {
+            if (!drainTouches()) {
+                logTls("session ended: touch send failed while idle");
+                return false;
+            }
+            continue;
+        }
 
         std::uint8_t protocolBytes[16384];
         const ssize_t received = ::recv(
@@ -692,10 +712,6 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
         }
 
         for (const auto& frame : frames.value()) {
-            if (!drainTouches()) {
-                logTls("session ended: touch send failed while receiving");
-                return false;
-            }
             if (!frame.encrypted ||
                 !sendAll(bridgeSocket, frame.payload, stopRequested)) {
                 logTls("unexpected post-auth frame");
@@ -831,10 +847,10 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 logTls("input binding accepted");
             } else if (frame.channel >= 2 && frame.channel <= 7 &&
                 messageId == 0x8000) {
-                // Keep the acknowledgement window conservative. A controlled
-                // max_unacked=2 experiment increased burstiness and caused
-                // repeated protocol/transport reconnects on the phone.
-                const std::uint8_t maxUnacked = 1;
+                // The transport owns a small in-flight window; decode remains
+                // asynchronous and presentation always selects the latest
+                // completed surface. ACKs are issued before decode enqueue.
+                const std::uint8_t maxUnacked = 3;
                 // AVChannelSetupResponse {
                 //   media_status: OK, max_unacked, configs: 0
                 // }.
@@ -893,51 +909,17 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                 logTls("microphone open request acknowledged");
             } else if (frame.channel == kVideoChannel &&
                 (messageId == 0x0000 || messageId == 0x0001)) {
-                const auto packetAt = std::chrono::steady_clock::now();
-                ++videoPackets;
-                ++videoWindowPackets;
-                videoWindowBytes += messageSize;
-                if (lastVideoPacketAt.time_since_epoch().count() != 0) {
-                    const auto gapMicros = static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                            packetAt - lastVideoPacketAt).count());
-                    videoGapMicros += gapMicros;
-                    videoGapMaximumMicros = std::max(
-                        videoGapMaximumMicros, gapMicros);
-                }
-                lastVideoPacketAt = packetAt;
                 const std::size_t mediaOffset =
                     messageId == 0x0000 ? 10 : 2;
-                if (messageId == 0x0000 && messageSize >= 10) {
-                    std::uint64_t pts = 0;
-                    for (std::size_t index = 2; index < 10; ++index) {
-                        pts = (pts << 8) | messageBytes[index];
-                    }
-                    if (lastVideoPts != 0 && pts >= lastVideoPts) {
-                        const auto delta = pts - lastVideoPts;
-                        videoPtsDeltaMicros += delta;
-                        videoPtsDeltaMaximumMicros = std::max(
-                            videoPtsDeltaMaximumMicros, delta);
-                        ++videoPtsSamples;
-                    }
-                    lastVideoPts = pts;
-                }
                 // Release the phone immediately; decode runs independently.
                 const std::vector<std::uint8_t> ack{
                     0x80, 0x04, 0x08,
                     mediaSessions[kVideoChannel], 0x10, 0x01};
-                const auto ackStartedAt = std::chrono::steady_clock::now();
                 if (!sendEncryptedControl(connection, bridgeSocket,
                         phoneSocket, frame.channel, ack,
                         stopRequested)) {
                     return false;
                 }
-                const auto ackMicros = static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now() - ackStartedAt).count());
-                videoAckMicros += ackMicros;
-                videoAckMaximumMicros = std::max(
-                    videoAckMaximumMicros, ackMicros);
                 if (messageSize > mediaOffset && videoDecoder.available()) {
                     if (!videoDecoder.enqueue(messageBytes + mediaOffset,
                             messageSize - mediaOffset)) {
@@ -945,75 +927,12 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         return false;
                     }
                 }
-                const auto metricsAt = std::chrono::steady_clock::now();
-                if (metricsAt - videoWindowStartedAt >=
-                    std::chrono::seconds(2)) {
-                    const double elapsedSeconds =
-                        std::chrono::duration<double>(
-                            metricsAt - videoWindowStartedAt)
-                            .count();
-                    const auto [decodedPackets, totalDecodeMicros,
-                        queueHighWater, totalQueueWaitMicros,
-                        maximumQueueWaitMicros] =
-                        videoDecoder.metrics();
-                    const double receiveFps = elapsedSeconds > 0.0
-                        ? static_cast<double>(videoWindowPackets) / elapsedSeconds
-                        : 0.0;
-                    const double averageDecodeMs = decodedPackets > 0
-                        ? static_cast<double>(totalDecodeMicros) /
-                            static_cast<double>(decodedPackets) / 1000.0
-                        : 0.0;
-                    const auto gapSamples = videoWindowPackets > 1
-                        ? videoWindowPackets - 1 : 0;
-                    logTls("H264 window packets=" +
-                        std::to_string(videoWindowPackets) + " bytes=" +
-                        std::to_string(videoWindowBytes) +
-                        " receive_fps=" + std::to_string(receiveFps) +
-                        " gap_avg_ms=" + std::to_string(gapSamples > 0
-                            ? static_cast<double>(videoGapMicros) /
-                                gapSamples / 1000.0 : 0.0) +
-                        " gap_max_ms=" + std::to_string(
-                            static_cast<double>(videoGapMaximumMicros) / 1000.0) +
-                        " pts_avg_ms=" + std::to_string(videoPtsSamples > 0
-                            ? static_cast<double>(videoPtsDeltaMicros) /
-                                videoPtsSamples / 1000.0 : 0.0) +
-                        " pts_max_ms=" + std::to_string(
-                            static_cast<double>(videoPtsDeltaMaximumMicros) / 1000.0) +
-                        " ack_avg_ms=" + std::to_string(videoWindowPackets > 0
-                            ? static_cast<double>(videoAckMicros) /
-                                videoWindowPackets / 1000.0 : 0.0) +
-                        " ack_max_ms=" + std::to_string(
-                            static_cast<double>(videoAckMaximumMicros) / 1000.0) +
-                        " decoded_packets=" +
-                        std::to_string(decodedPackets) +
-                        " queue_high_water=" +
-                        std::to_string(queueHighWater) +
-                        " avg_decode_ms=" +
-                        std::to_string(averageDecodeMs) +
-                        " queue_wait_avg_ms=" +
-                        std::to_string(decodedPackets > 0
-                            ? static_cast<double>(totalQueueWaitMicros) /
-                                decodedPackets / 1000.0 : 0.0) +
-                        " queue_wait_max_ms=" + std::to_string(
-                            static_cast<double>(maximumQueueWaitMicros) / 1000.0));
-                    videoWindowStartedAt = metricsAt;
-                    videoWindowPackets = 0;
-                    videoWindowBytes = 0;
-                    videoGapMicros = 0;
-                    videoGapMaximumMicros = 0;
-                    videoAckMicros = 0;
-                    videoAckMaximumMicros = 0;
-                    videoPtsDeltaMicros = 0;
-                    videoPtsDeltaMaximumMicros = 0;
-                    videoPtsSamples = 0;
-                }
             } else if (frame.channel >= kNavigationAudioChannel &&
                 frame.channel <= kMediaAudioChannel &&
                 (messageId == 0x0000 || messageId == 0x0001)) {
                 // Keep audio channels flowing even before PCM playback is
                 // implemented. Without an ACK, Spotify/system audio stalls and
                 // Android eventually closes the entire projection session.
-                ++mediaPacketCounts[frame.channel];
                 const std::vector<std::uint8_t> ack{
                     0x80, 0x04, 0x08, mediaSessions[frame.channel],
                     0x10, 0x01};
@@ -1022,12 +941,10 @@ bool runServiceDiscovery(SslConnection& connection, int bridgeSocket,
                         stopRequested)) {
                     return false;
                 }
-                if (mediaPacketCounts[frame.channel] == 1 ||
-                    mediaPacketCounts[frame.channel] % 250 == 0) {
-                    logTls("audio packets acknowledged channel=" +
-                        std::to_string(frame.channel) + " packets=" +
-                        std::to_string(mediaPacketCounts[frame.channel]));
-                }
+            }
+            if (!drainTouches()) {
+                logTls("session ended: input writer failed");
+                return false;
             }
         }
     }
