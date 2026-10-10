@@ -1,6 +1,6 @@
 # Switch Auto V3 — Baseline inicial
 
-- Data do registro: 2026-10-09
+- Data do registro: 2026-10-09; toolchain revalidado em 2026-10-10
 - Commit preservado da V2: `0eef28c438f1dc33e0696079139c20864d52b987`
 - Tag: `v2-aa-prototype-final`
 - Telefone validado: Motorola edge 60
@@ -15,10 +15,12 @@
 | Versão Android/API | pendente; ADB estava desconectado em 2026-10-09 |
 | Firmware do Switch | pendente de leitura no aparelho |
 | Atmosphère | pendente de leitura no aparelho |
-| devkitPro/devkitA64/libnx | bloqueado; `C:\devkitPro` não estava acessível em 2026-10-09 |
+| devkitPro/devkitA64/libnx | `C:\devkitPro`; devkitA64 `r30-1` (GCC `16.1.0`), libnx `4.12.0-1` |
+| FFmpeg Switch | `switch-ffmpeg 7.1-5` |
 | Java | OpenJDK `21.0.10` do Android Studio |
 | ADB | `1.0.41`, platform-tools `37.0.0-14910828` |
 | Gradle/AGP | Gradle `9.5.0`, Android Gradle Plugin `9.3.0` |
+| Git neste host | usar `C:\Program Files\Git\cmd\git.exe`; o Git do MSYS2/devkitPro aparece antes no `PATH` desta sessão |
 | Waze | versão pendente via `dumpsys package` |
 | Google Maps | versão pendente via `dumpsys package` |
 | Spotify | versão pendente via `dumpsys package` |
@@ -31,7 +33,7 @@ preenchidos. Versões e condições de rede não devem ser inferidas da memória
 
 | Artefato | Papel | SHA-256 |
 | --- | --- | --- |
-| `v2/apps/switch/switch-auto-v2.nro` | último artefato testado; ainda não reproduzido após `0eef28c` | `28AF1BD161FC50094092281B4E7E22F9813DB521A18D6B04F735EEC5AA55D7D3` |
+| `v2/apps/switch/switch-auto-v2.nro` | último artefato testado e rebuild limpo de `0eef28c`; reprodução byte a byte confirmada | `28AF1BD161FC50094092281B4E7E22F9813DB521A18D6B04F735EEC5AA55D7D3` |
 | APK testado, preservado somente pelo hash | último artefato instalado/testado antes do rebuild | `C4BB5AD12FBFD5EDD50B4F5D3750264A91B635786E1C567A661D7028B8244785` |
 | `v2/apps/android-companion/app/build/outputs/apk/debug/app-debug.apk` | rebuild limpo a partir de `0eef28c` | `3CE975F0412DD3029C32647C9D79327F8CC9767143C23BD7EEB7FC1A2F2CD97B` |
 
@@ -49,15 +51,17 @@ divergiu do artefato testado, portanto o APK debug não é tratado como build
 reprodutível byte a byte; assinatura/timestamps do pacote precisam ser
 investigados se reprodutibilidade binária for exigida.
 
-O NRO ainda precisa ser reconstruído com:
+O NRO foi reconstruído em 2026-10-10 com:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\tools\build-switch.ps1 -Generation v2
 ```
 
-PREP-01 permanece em `review` até registrar toolchain, duração e hash desse
-rebuild. Os binários são evidência local e não precisam ser versionados.
+Resultado: sucesso em `21s`, `12.713.306` bytes e hash idêntico ao artefato
+testado. O primeiro configure identificou corretamente a dependência ausente;
+`switch-ffmpeg 7.1-5` foi instalado pelo pacman oficial antes da execução verde.
+Os binários são evidência local e não precisam ser versionados.
 
 ## Controle funcional — DHU
 
