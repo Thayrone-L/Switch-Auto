@@ -15,10 +15,10 @@ ADRs e critérios de aceite só mudam por decisão explícita.
 | PREP-02 | done | Integrador | PREP-01 | Branch `codex/v3-aa-foundation`; documentação aprovada por Quality |
 | PREP-03 | review | Verification | PREP-01 | Android, apps, Switch, Atmosphère e condições de rede ainda precisam de valores exatos |
 | PREP-04 | review | Integrador/Quality | PREP-01 | ADR proposto; escolha da licença pendente |
-| M0-01 | ready | Integrador | PREP-02 | Build e targets |
-| M0-02 | ready | Contracts | PREP-02 | Tipos e erros |
-| M0-03 | blocked | Contracts | M0-02 | Interfaces runtime |
-| M0-04 | blocked | Verification | M0-02 | Harness e fixtures |
+| M0-01 | review | Integrador | PREP-02 | Desktop build/test verde; NRO mínimo compilado, aguardando smoke físico de abrir/fechar |
+| M0-02 | done | Contracts | PREP-02 | Tipos/erros aprovados; CTest 2/2 e controle negativo comprovado |
+| M0-03 | ready | Contracts | M0-02 | Interfaces runtime |
+| M0-04 | ready | Verification | M0-02 | Harness e fixtures |
 
 Estados permitidos: `blocked`, `ready`, `in_progress`, `review`, `done`.
 
