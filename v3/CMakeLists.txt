@@ -20,37 +20,20 @@ if(NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
 else()
     include(CTest)
 
-    add_executable(switch-auto-v3-smoke
-        tests/smoke_main.cpp
-    )
-    target_compile_features(switch-auto-v3-smoke PRIVATE cxx_std_17)
+    function(sa_add_test name)
+        add_executable(${name} ${ARGN})
+        target_compile_features(${name} PRIVATE cxx_std_17)
+        target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+        if(MSVC)
+            target_compile_options(${name} PRIVATE /W4 /WX /permissive- /utf-8)
+        else()
+            target_compile_options(${name} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        add_test(NAME ${name} COMMAND ${name})
+    endfunction()
 
-    add_test(NAME switch-auto-v3.smoke COMMAND switch-auto-v3-smoke)
-
-    add_executable(switch-auto-v3-base-contracts
-        tests/base/base_contracts_test.cpp
-    )
-    target_compile_features(switch-auto-v3-base-contracts PRIVATE cxx_std_17)
-    target_include_directories(switch-auto-v3-base-contracts PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-    if(MSVC)
-        target_compile_options(switch-auto-v3-base-contracts PRIVATE
-            /W4
-            /WX
-        )
-    else()
-        target_compile_options(switch-auto-v3-base-contracts PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Werror
-            -fno-exceptions
-        )
-    endif()
-
-    add_test(
-        NAME switch-auto-v3.base-contracts
-        COMMAND switch-auto-v3-base-contracts
-    )
+    sa_add_test(v3-smoke tests/smoke_main.cpp)
+    sa_add_test(v3-base tests/base/base_contracts_test.cpp)
+    sa_add_test(v3-contracts tests/contracts/runtime_contracts_test.cpp)
+    sa_add_test(v3-harness tests/support/m0_harness_test.cpp)
 endif()

@@ -2,18 +2,17 @@
 #include "core/base/cancellation.hpp"
 #include "core/base/errors.hpp"
 #include "core/base/result.hpp"
+#include "tests/support/test_runner.hpp"
 
 #include <chrono>
-#include <cstdio>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
 
 namespace base = switch_auto::base;
+namespace test = switch_auto::test;
 
 namespace {
-
-int failures = 0;
 
 template <typename T, typename = void>
 struct CanIssueTokenFromRvalue : std::false_type {};
@@ -22,54 +21,39 @@ template <typename T>
 struct CanIssueTokenFromRvalue<
     T, std::void_t<decltype(std::declval<T&&>().token())>> : std::true_type {};
 
-#define CHECK(condition)                                                        \
-    do {                                                                        \
-        if (!(condition)) {                                                     \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__,     \
-                         __LINE__, #condition);                                 \
-            ++failures;                                                        \
-        }                                                                       \
-    } while (false)
-
-void byteSpanPreservesBounds() {
+void byteSpanPreservesBounds(test::TestContext& context) {
     std::uint8_t bytes[]{1, 2, 3, 4};
     base::ByteSpan span{bytes};
     const base::ConstByteSpan read_only = span;
-    CHECK(span.size() == 4);
-    CHECK(read_only.data() == bytes);
-    CHECK(span.subspan(1, 2).size() == 2);
-    CHECK(span.subspan(1, 2)[0] == 2);
-    CHECK(span.subspan(3, 99).size() == 1);
-    CHECK(span.subspan(5).empty());
+    SA_TEST_EXPECT(context, span.size() == 4);
+    SA_TEST_EXPECT(context, read_only.data() == bytes);
+    SA_TEST_EXPECT(context, span.subspan(1, 2).size() == 2);
+    SA_TEST_EXPECT(context, span.subspan(1, 2)[0] == 2);
+    SA_TEST_EXPECT(context, span.subspan(3, 99).size() == 1);
+    SA_TEST_EXPECT(context, span.subspan(5).empty());
 }
 
-void resultDistinguishesValueAndError() {
+void resultDistinguishesValueAndError(test::TestContext& context) {
     auto success = base::Result<std::uint32_t, base::TransportError>::success(42);
-    CHECK(success.hasValue());
-    CHECK(success.valueIf() != nullptr);
-    CHECK(*success.valueIf() == 42);
-    CHECK(success.errorIf() == nullptr);
-
-    const base::TransportError expected{
-        base::TransportErrorCode::connection_reset, 10054};
-    auto failure =
-        base::Result<std::uint32_t, base::TransportError>::failure(expected);
-    CHECK(!failure.hasValue());
-    CHECK(failure.valueIf() == nullptr);
-    CHECK(failure.errorIf() != nullptr);
-    CHECK(failure.errorIf()->code == base::TransportErrorCode::connection_reset);
-    CHECK(failure.errorIf()->platform_code == 10054);
-
+    SA_TEST_EXPECT(context, success.hasValue());
+    SA_TEST_EXPECT(context, success.valueIf() != nullptr);
+    SA_TEST_EXPECT(context, *success.valueIf() == 42);
+    SA_TEST_EXPECT(context, success.errorIf() == nullptr);
+    const base::TransportError expected{base::TransportErrorCode::connection_reset, 10054};
+    auto failure = base::Result<std::uint32_t, base::TransportError>::failure(expected);
+    SA_TEST_EXPECT(context, !failure.hasValue());
+    SA_TEST_EXPECT(context, failure.valueIf() == nullptr);
+    SA_TEST_EXPECT(context, failure.errorIf() != nullptr);
+    SA_TEST_EXPECT(context, failure.errorIf()->code == base::TransportErrorCode::connection_reset);
+    SA_TEST_EXPECT(context, failure.errorIf()->platform_code == 10054);
     auto void_success = base::Result<void, base::ProtocolError>::success();
-    CHECK(void_success.hasValue());
-    CHECK(void_success.errorIf() == nullptr);
-
+    SA_TEST_EXPECT(context, void_success.hasValue());
+    SA_TEST_EXPECT(context, void_success.errorIf() == nullptr);
     auto void_failure = base::Result<void, base::ProtocolError>::failure(
         {base::ProtocolErrorCode::invalid_header, 1, 2});
-    CHECK(!void_failure.hasValue());
-    CHECK(void_failure.errorIf() != nullptr);
-    CHECK(void_failure.errorIf()->code ==
-          base::ProtocolErrorCode::invalid_header);
+    SA_TEST_EXPECT(context, !void_failure.hasValue());
+    SA_TEST_EXPECT(context, void_failure.errorIf() != nullptr);
+    SA_TEST_EXPECT(context, void_failure.errorIf()->code == base::ProtocolErrorCode::invalid_header);
 }
 
 base::CancellationToken retainedCancelledToken() {
@@ -79,38 +63,35 @@ base::CancellationToken retainedCancelledToken() {
     return token;
 }
 
-void cancellationIsExplicitAndLifetimeSafe() {
+void cancellationIsExplicitAndLifetimeSafe(test::TestContext& context) {
     base::CancellationToken inert;
-    CHECK(!inert.canBeCancelled());
-    CHECK(!inert.isCancellationRequested());
-
+    SA_TEST_EXPECT(context, !inert.canBeCancelled());
+    SA_TEST_EXPECT(context, !inert.isCancellationRequested());
     base::CancellationSource source;
     const auto token = source.token();
-    CHECK(token.canBeCancelled());
-    CHECK(!token.isCancellationRequested());
+    SA_TEST_EXPECT(context, token.canBeCancelled());
+    SA_TEST_EXPECT(context, !token.isCancellationRequested());
     source.cancel();
-    CHECK(token.isCancellationRequested());
-
+    SA_TEST_EXPECT(context, token.isCancellationRequested());
     const auto retained = retainedCancelledToken();
-    CHECK(retained.canBeCancelled());
-    CHECK(retained.isCancellationRequested());
+    SA_TEST_EXPECT(context, retained.canBeCancelled());
+    SA_TEST_EXPECT(context, retained.isCancellationRequested());
 }
 
-void deadlinesUseMonotonicTime() {
+void deadlinesUseMonotonicTime(test::TestContext& context) {
     const auto now = base::Deadline::Clock::now();
-    CHECK(base::Deadline::infinite().isInfinite());
-    CHECK(!base::Deadline::infinite().hasExpired(now));
-    CHECK(base::Deadline::at(now).hasExpired(now));
-    CHECK(!base::Deadline::at(now + std::chrono::seconds{1}).hasExpired(now));
+    SA_TEST_EXPECT(context, base::Deadline::infinite().isInfinite());
+    SA_TEST_EXPECT(context, !base::Deadline::infinite().hasExpired(now));
+    SA_TEST_EXPECT(context, base::Deadline::at(now).hasExpired(now));
+    SA_TEST_EXPECT(context, !base::Deadline::at(now + std::chrono::seconds{1}).hasExpired(now));
 }
 
-void errorsCarryTypedContext() {
-    const base::ProtocolError protocol{
-        base::ProtocolErrorCode::unexpected_message, 3, 7};
+void errorsCarryTypedContext(test::TestContext& context) {
+    const base::ProtocolError protocol{base::ProtocolErrorCode::unexpected_message, 3, 7};
     const auto session = base::SessionError::fromProtocol(protocol);
-    CHECK(session.code == base::SessionErrorCode::protocol_failure);
-    CHECK(session.protocol.channel_id == 3);
-    CHECK(session.protocol.message_id == 7);
+    SA_TEST_EXPECT(context, session.code == base::SessionErrorCode::protocol_failure);
+    SA_TEST_EXPECT(context, session.protocol.channel_id == 3);
+    SA_TEST_EXPECT(context, session.protocol.message_id == 7);
 }
 
 static_assert(std::is_nothrow_copy_constructible_v<base::ByteSpan>);
@@ -122,10 +103,11 @@ static_assert(!CanIssueTokenFromRvalue<base::CancellationSource>::value);
 }  // namespace
 
 int main() {
-    byteSpanPreservesBounds();
-    resultDistinguishesValueAndError();
-    cancellationIsExplicitAndLifetimeSafe();
-    deadlinesUseMonotonicTime();
-    errorsCarryTypedContext();
-    return failures == 0 ? 0 : 1;
+    return test::runTests({
+        {"byte span preserves bounds", byteSpanPreservesBounds},
+        {"result distinguishes value and error", resultDistinguishesValueAndError},
+        {"cancellation is explicit and lifetime safe", cancellationIsExplicitAndLifetimeSafe},
+        {"deadlines use monotonic time", deadlinesUseMonotonicTime},
+        {"errors carry typed context", errorsCarryTypedContext},
+    });
 }

@@ -17,8 +17,8 @@ ADRs e critérios de aceite só mudam por decisão explícita.
 | PREP-04 | review | Integrador/Quality | PREP-01 | ADR proposto; escolha da licença pendente |
 | M0-01 | review | Integrador | PREP-02 | Desktop build/test verde; NRO mínimo compilado, aguardando smoke físico de abrir/fechar |
 | M0-02 | done | Contracts | PREP-02 | Tipos/erros aprovados; CTest 2/2 e controle negativo comprovado |
-| M0-03 | ready | Contracts | M0-02 | Interfaces runtime |
-| M0-04 | ready | Verification | M0-02 | Harness e fixtures |
+| M0-03 | review | Contracts | M0-02 | contratos runtime incluídos; harness unificado; 4 testes CTest |
+| M0-04 | review | Verification | M0-02 | harness unificado; 4 testes CTest; GCC check verde; build Switch executado fora do sandbox |
 
 Estados permitidos: `blocked`, `ready`, `in_progress`, `review`, `done`.
 
