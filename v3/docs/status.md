@@ -17,8 +17,8 @@ ADRs e critérios de aceite só mudam por decisão explícita.
 | PREP-04 | review | Integrador/Quality | PREP-01 | ADR proposto; escolha da licença pendente |
 | M0-01 | review | Integrador | PREP-02 | Desktop build/test verde; NRO mínimo compilado, aguardando smoke físico de abrir/fechar |
 | M0-02 | done | Contracts | PREP-02 | Tipos/erros aprovados; CTest 2/2 e controle negativo comprovado |
-| M0-03 | ready | Contracts | M0-02 | Interfaces runtime |
-| M0-04 | ready | Verification | M0-02 | Harness e fixtures |
+| M0-03 | in_progress | Contracts | M0-02 | Interfaces runtime em implementação pelo workstream Contracts |
+| M0-04 | in_progress | Verification | M0-02 | Harness/fakes isolados em implementação pelo workstream Verification |
 
 Estados permitidos: `blocked`, `ready`, `in_progress`, `review`, `done`.
 
